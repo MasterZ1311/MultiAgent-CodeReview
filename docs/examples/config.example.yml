@@ -1,0 +1,350 @@
+# CodeVault AI - Example Configuration File
+# Place this file at: ~/.codevault/config.yml or .codevault.yml (project root)
+
+version: 1
+
+# ============================================
+# Server Configuration
+# ============================================
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  keepalive: 5
+  timeout: 120
+
+# ============================================
+# Database Configuration
+# ============================================
+database:
+  # Connection string
+  url: "postgresql://codevault:password@localhost:5432/codevault"
+  # For development: "sqlite:///./codevault.db"
+  
+  # Connection pool
+  pool_size: 10
+  max_overflow: 20
+  pool_timeout: 30
+  pool_recycle: 3600
+
+# ============================================
+# Redis Cache Configuration
+# ============================================
+cache:
+  url: "redis://localhost:6379/0"
+  ttl_seconds: 604800  # 7 days
+  enabled: true
+  maxmemory_policy: "allkeys-lru"
+
+# ============================================
+# LLM Provider Configuration
+# ============================================
+llm:
+  provider: "openai"  # Options: openai, anthropic, ollama, azure_openai
+  
+  # Fallback providers (tried in order if primary fails)
+  fallback_providers:
+    - "anthropic"
+    - "ollama"
+  
+  # OpenAI Configuration
+  openai:
+    api_key: "${OPENAI_API_KEY}"  # From environment variable
+    model: "gpt-4-turbo-preview"
+    temperature: 0.2
+    max_tokens: 2000
+    max_retries: 3
+    timeout: 60
+  
+  # Anthropic Configuration
+  anthropic:
+    api_key: "${ANTHROPIC_API_KEY}"
+    model: "claude-3-sonnet-20240229"
+    max_tokens: 4096
+    temperature: 0.2
+  
+  # Ollama Configuration (Local)
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "codellama"
+    temperature: 0.2
+    num_ctx: 4096
+  
+  # Azure OpenAI Configuration
+  azure_openai:
+    api_key: "${AZURE_OPENAI_API_KEY}"
+    endpoint: "https://your-resource.openai.azure.com/"
+    deployment: "gpt-4"
+    api_version: "2023-12-01-preview"
+
+# ============================================
+# Agent Configuration
+# ============================================
+agents:
+  # Which agents to enable globally
+  enabled: ["security", "performance", "quality"]
+  
+  # Default agents (if not specified in request)
+  default: ["security", "performance", "quality"]
+  
+  # Execution settings
+  execution:
+    mode: "parallel"  # parallel, sequential, priority
+    timeout_seconds: 30
+    max_retries: 2
+  
+  # Global severity settings
+  severity:
+    block_on: ["critical", "high"]
+    warn_on: ["medium"]
+    report_all: true
+  
+  # Security Agent
+  security:
+    enabled: true
+    llm_model: "gpt-4-turbo-preview"  # Best model for security
+    
+    rule_sets:
+      - owasp_top_10
+      - cwe_top_25
+      - sans_top_25
+    
+    secret_scanning:
+      enabled: true
+      patterns:
+        - api_keys
+        - passwords
+        - private_keys
+        - tokens
+      custom_patterns:
+        - regex: "API_KEY_[A-Za-z0-9]{32}"
+          name: "Custom API Key"
+      ignore_patterns:
+        - "test_api_key_*"
+        - "*_EXAMPLE_*"
+    
+    severity_mapping:
+      hardcoded_credentials: "critical"
+      sql_injection: "critical"
+      xss: "high"
+      weak_crypto: "medium"
+    
+    timeout_seconds: 30
+  
+  # Performance Agent
+  performance:
+    enabled: true
+    llm_model: "gpt-4-turbo-preview"
+    
+    complexity:
+      warn_at: "O(n²)"
+      error_at: "O(n³)"
+      check_nested_loops: true
+      check_recursion: true
+    
+    memory:
+      warn_at_mb: 100
+      error_at_mb: 500
+      detect_leaks: true
+    
+    database:
+      detect_n_plus_1: true
+      suggest_indexes: true
+      max_result_size: 1000
+    
+    caching:
+      suggest_opportunities: true
+      min_computation_time_ms: 100
+    
+    timeout_seconds: 30
+  
+  # Code Quality Agent
+  quality:
+    enabled: true
+    llm_model: "gpt-3.5-turbo"  # Cheaper model OK for quality
+    
+    style_guide: "pep8"  # pep8, google, airbnb, etc.
+    
+    max_function_length: 50
+    max_cyclomatic_complexity: 10
+    max_class_size: 20
+    max_nesting_depth: 4
+    
+    documentation:
+      require_docstrings: true
+      require_type_hints: true
+      require_examples: false
+    
+    detect:
+      code_duplication: true
+      long_functions: true
+      god_classes: true
+    
+    best_practices:
+      solid_principles: true
+      dry_principle: true
+      naming_conventions: true
+    
+    timeout_seconds: 30
+
+# ============================================
+# Git Hooks Configuration
+# ============================================
+hooks:
+  # Pre-commit hook
+  pre_commit:
+    enabled: true
+    blocking: true
+    agents: ["security", "quality"]
+    severity_threshold: "high"
+    
+    include_patterns:
+      - "**/*.py"
+      - "**/*.js"
+      - "**/*.ts"
+      - "**/*.java"
+      - "**/*.go"
+    
+    exclude_patterns:
+      - "**/*_test.py"
+      - "**/*.min.js"
+      - "migrations/**"
+      - "node_modules/**"
+      - "vendor/**"
+    
+    max_files: 50
+    timeout_seconds: 60
+    async_mode: false
+    cache_results: true
+  
+  # Pre-push hook
+  pre_push:
+    enabled: true
+    blocking: true
+    agents: ["security", "performance", "quality"]
+    severity_threshold: "medium"
+    
+    review_all_commits: true
+    timeout_seconds: 300
+
+# ============================================
+# Performance Tuning
+# ============================================
+performance:
+  caching:
+    enabled: true
+    aggressive: true
+    
+    include_in_key:
+      - code_hash
+      - agent_versions
+      - config_hash
+      - llm_model
+  
+  concurrency:
+    max_concurrent_agents: 3
+    max_concurrent_reviews: 10
+    max_concurrent_llm_calls: 5
+
+# ============================================
+# Rate Limiting
+# ============================================
+rate_limiting:
+  enabled: true
+  
+  per_key:
+    requests_per_hour: 100
+    burst: 10
+  
+  per_ip:
+    requests_per_hour: 50
+    burst: 5
+
+# ============================================
+# Logging Configuration
+# ============================================
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "json"  # json or text
+  
+  output:
+    - type: "console"
+      level: "INFO"
+    - type: "file"
+      path: "/var/log/codevault/app.log"
+      level: "DEBUG"
+      max_size_mb: 100
+      backup_count: 5
+  
+  redact:
+    - "api_key"
+    - "password"
+    - "token"
+    - "secret"
+
+# ============================================
+# Privacy & Data Retention
+# ============================================
+privacy:
+  code_retention:
+    enabled: false  # Don't store code by default
+    ttl_days: 7
+  
+  review_retention:
+    enabled: true
+    ttl_days: 90
+  
+  log_retention:
+    ttl_days: 30
+  
+  pii:
+    redact_in_logs: true
+    anonymize_in_metrics: true
+
+# ============================================
+# Monitoring
+# ============================================
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+  
+  metrics:
+    - review_total
+    - review_duration
+    - agent_execution_time
+    - cache_hit_rate
+    - error_rate
+
+# ============================================
+# File Patterns to Review
+# ============================================
+# These are global patterns; can be overridden per-hook
+include:
+  - "**/*.py"
+  - "**/*.js"
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.java"
+  - "**/*.go"
+  - "**/*.rs"
+  - "**/*.rb"
+  - "**/*.php"
+  - "**/*.cpp"
+  - "**/*.c"
+  - "**/*.cs"
+
+exclude:
+  - "**/*_test.py"
+  - "**/*_test.go"
+  - "**/*.test.js"
+  - "**/*.test.ts"
+  - "**/*.min.js"
+  - "**/*.min.css"
+  - "**/node_modules/**"
+  - "**/vendor/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/.venv/**"
+  - "**/__pycache__/**"
+  - "**/migrations/**"
