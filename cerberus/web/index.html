@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>cerberus&lt;/&gt; - Enterprise Multi-Agent Code Review</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(18, 24, 38, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --accent-purple: #8b5cf6;
+      --accent-blue: #3b82f6;
+      --accent-cyan: #06b6d4;
+      --accent-green: #10b981;
+      --accent-red: #ef4444;
+      --accent-orange: #f97316;
+      --accent-yellow: #f59e0b;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --editor-bg: #0b1120;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.12) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.10) 0px, transparent 50%),
+        radial-gradient(at 50% 100%, rgba(59, 130, 246, 0.08) 0px, transparent 50%);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      border-bottom: 1px solid var(--card-border);
+      background: rgba(9, 13, 22, 0.85);
+      backdrop-filter: blur(16px);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .logo-badge {
+      background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      font-size: 1.1rem;
+      box-shadow: 0 0 20px rgba(139, 92, 246, 0.4);
+    }
+
+    .brand-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(to right, #fff, #cbd5e1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-subtitle {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      color: #34d399;
+      font-weight: 600;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background-color: #10b981;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #10b981;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    main {
+      flex: 1;
+      max-width: 1600px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 2rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+    }
+
+    @media (max-width: 1024px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 1.5rem;
+      backdrop-filter: blur(12px);
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .presets {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .btn-preset {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-preset:hover {
+      background: rgba(139, 92, 246, 0.2);
+      color: #fff;
+      border-color: rgba(139, 92, 246, 0.4);
+    }
+
+    .editor-wrapper {
+      position: relative;
+      flex: 1;
+      min-height: 380px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    textarea.code-editor {
+      width: 100%;
+      flex: 1;
+      min-height: 380px;
+      background: var(--editor-bg);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 1rem;
+      color: #e2e8f0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    textarea.code-editor:focus {
+      border-color: var(--accent-purple);
+      box-shadow: 0 0 15px rgba(139, 92, 246, 0.2);
+    }
+
+    .agent-selector {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      padding: 0.75rem;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .agent-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .agent-checkbox input {
+      accent-color: var(--accent-purple);
+      cursor: pointer;
+    }
+
+    .btn-submit {
+      background: linear-gradient(135deg, #7c3aed, #2563eb);
+      border: none;
+      color: #fff;
+      padding: 0.85rem 1.5rem;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: transform 0.1s, box-shadow 0.2s;
+      box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4);
+    }
+
+    .btn-submit:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(124, 58, 237, 0.6);
+    }
+
+    .btn-submit:active {
+      transform: translateY(0);
+    }
+
+    /* Results Panel */
+    .overview-grid {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .score-circle {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: conic-gradient(var(--accent-green) 0% 85%, rgba(255,255,255,0.05) 85% 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      margin: 0 auto;
+    }
+
+    .score-inner {
+      width: 95px;
+      height: 95px;
+      background: #0d1322;
+      border-radius: 50%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .score-num {
+      font-size: 1.75rem;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .score-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.5rem;
+    }
+
+    .stat-badge {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 0.5rem;
+      text-align: center;
+    }
+
+    .stat-badge.critical { border-color: rgba(239, 68, 68, 0.4); }
+    .stat-badge.high { border-color: rgba(249, 115, 22, 0.4); }
+    .stat-badge.medium { border-color: rgba(245, 158, 11, 0.4); }
+    .stat-badge.low { border-color: rgba(59, 130, 246, 0.4); }
+
+    .stat-badge .num {
+      font-size: 1.1rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .stat-badge.critical .num { color: var(--accent-red); }
+    .stat-badge.high .num { color: var(--accent-orange); }
+    .stat-badge.medium .num { color: var(--accent-yellow); }
+    .stat-badge.low .num { color: var(--accent-blue); }
+
+    .stat-badge .lbl {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .findings-container {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      overflow-y: auto;
+      max-height: 480px;
+      padding-right: 0.5rem;
+    }
+
+    .finding-card {
+      background: rgba(13, 19, 33, 0.7);
+      border: 1px solid var(--card-border);
+      border-left: 4px solid var(--accent-purple);
+      border-radius: 8px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      transition: all 0.2s;
+    }
+
+    .finding-card.critical { border-left-color: var(--accent-red); }
+    .finding-card.high { border-left-color: var(--accent-orange); }
+    .finding-card.medium { border-left-color: var(--accent-yellow); }
+    .finding-card.low { border-left-color: var(--accent-blue); }
+    .finding-card.info { border-left-color: #64748b; }
+
+    .finding-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .finding-title {
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: #fff;
+    }
+
+    .badge-pill {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+    }
+
+    .badge-pill.critical { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+    .badge-pill.high { background: rgba(249, 115, 22, 0.2); color: #fb923c; }
+    .badge-pill.medium { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+    .badge-pill.low { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+    .badge-pill.info { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
+
+    .finding-meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .code-box {
+      background: #060a12;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 6px;
+      padding: 0.5rem 0.75rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      color: #f43f5e;
+      overflow-x: auto;
+    }
+
+    .code-box.fix {
+      color: #10b981;
+      border-color: rgba(16, 185, 129, 0.2);
+    }
+
+    .spinner {
+      border: 3px solid rgba(255, 255, 255, 0.2);
+      border-top: 3px solid #fff;
+      border-radius: 50%;
+      width: 18px;
+      height: 18px;
+      animation: spin 0.8s linear infinite;
+      display: none;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="logo-badge">&lt;/&gt;</div>
+      <div>
+        <div class="brand-title">cerberus&lt;/&gt;</div>
+        <div class="brand-subtitle">Multi-Agent Code Intelligence</div>
+      </div>
+    </div>
+    <div class="status-pill">
+      <div class="status-dot"></div>
+      <span id="system-status">5 Agents Ready • Dual-Tier Cache Active</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Left: Code Input Section -->
+    <section class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>Source Code Analysis</span>
+        </div>
+        <div class="presets">
+          <button class="btn-preset" onclick="loadPreset('vulnerable')">⚠️ SQL &amp; Secrets</button>
+          <button class="btn-preset" onclick="loadPreset('performance')">⚡ O(n²) &amp; Loops</button>
+          <button class="btn-preset" onclick="loadPreset('clean')">✨ Clean Code</button>
+        </div>
+      </div>
+
+      <div class="editor-wrapper">
+        <textarea id="code-input" class="code-editor" spellcheck="false" placeholder="Paste your source code here..."></textarea>
+      </div>
+
+      <div class="agent-selector">
+        <label class="agent-checkbox"><input type="checkbox" id="agent-security" checked> 🛡️ Security</label>
+        <label class="agent-checkbox"><input type="checkbox" id="agent-performance" checked> ⚡ Performance</label>
+        <label class="agent-checkbox"><input type="checkbox" id="agent-quality" checked> 🎯 Quality</label>
+        <label class="agent-checkbox"><input type="checkbox" id="agent-architecture" checked> 🏛️ Architecture</label>
+        <label class="agent-checkbox"><input type="checkbox" id="agent-compliance" checked> 📋 Compliance</label>
+      </div>
+
+      <button id="btn-review" class="btn-submit" onclick="executeReview()">
+        <span class="spinner" id="btn-spinner"></span>
+        <span id="btn-text">Execute Multi-Agent Review</span>
+      </button>
+    </section>
+
+    <!-- Right: Review Findings & Metrics -->
+    <section class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>Review Synthesizer</span>
+        </div>
+        <span id="latency-tag" style="font-size: 0.8rem; color: var(--text-muted);">Awaiting submission</span>
+      </div>
+
+      <div class="overview-grid">
+        <div class="score-circle" id="score-circle">
+          <div class="score-inner">
+            <div class="score-num" id="score-val">--</div>
+            <div class="score-label">Quality Score</div>
+          </div>
+        </div>
+        <div class="summary-cards">
+          <div class="stat-badge critical"><div class="num" id="cnt-critical">0</div><div class="lbl">Critical</div></div>
+          <div class="stat-badge high"><div class="num" id="cnt-high">0</div><div class="lbl">High</div></div>
+          <div class="stat-badge medium"><div class="num" id="cnt-medium">0</div><div class="lbl">Medium</div></div>
+          <div class="stat-badge low"><div class="num" id="cnt-low">0</div><div class="lbl">Low/Info</div></div>
+        </div>
+      </div>
+
+      <div class="findings-container" id="findings-list">
+        <div style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+          Select a preset or paste code to trigger autonomous multi-agent analysis.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const PRESETS = {
+      vulnerable: `import os\n\nAPI_KEY = "sk-live-98213847291038291029381"\n\ndef get_user_profile(user_id):\n    # Critical: SQL Injection flaw\n    query = "SELECT * FROM users WHERE id = " + user_id\n    db.execute(query)\n\ndef ping_host(host):\n    # Command injection\n    os.system("ping -c 1 " + host)\n`,
+      performance: `def process_records(items):\n    # O(n^2) Quadratic nested loop\n    duplicates = []\n    for i in items:\n        for j in items:\n            if i == j:\n                duplicates.append(i)\n\n    # Inefficient string concatenation in loop\n    summary = ""\n    for item in duplicates:\n        summary += str(item)\n\n    return summary\n`,
+      clean: `from typing import List, Optional\nimport os\n\ndef calculate_total(prices: List[float], tax_rate: float = 0.05) -> float:\n    """Calculate total price including sales tax."""\n    subtotal = sum(prices)\n    return round(subtotal * (1 + tax_rate), 2)\n`
+    };
+
+    function loadPreset(name) {
+      document.getElementById('code-input').value = PRESETS[name] || '';
+    }
+
+    async function executeReview() {
+      const code = document.getElementById('code-input').value.trim();
+      if (!code) {
+        alert('Please enter or select code to review.');
+        return;
+      }
+
+      const agents = [];
+      if (document.getElementById('agent-security').checked) agents.push('security');
+      if (document.getElementById('agent-performance').checked) agents.push('performance');
+      if (document.getElementById('agent-quality').checked) agents.push('quality');
+      if (document.getElementById('agent-architecture').checked) agents.push('architecture');
+      if (document.getElementById('agent-compliance').checked) agents.push('compliance');
+
+      const btn = document.getElementById('btn-review');
+      const spinner = document.getElementById('btn-spinner');
+      const btnText = document.getElementById('btn-text');
+
+      btn.disabled = true;
+      spinner.style.display = 'inline-block';
+      btnText.innerText = 'Agents Inspecting...';
+
+      try {
+        const res = await fetch('/api/v1/review', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer cvai_dev_key_123'
+          },
+          body: JSON.stringify({
+            code: code,
+            language: 'python',
+            agents: agents
+          })
+        });
+
+        const data = await res.json();
+        renderResults(data);
+      } catch (err) {
+        console.error(err);
+        alert('Failed to execute review: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+        btnText.innerText = 'Execute Multi-Agent Review';
+      }
+    }
+
+    function renderResults(data) {
+      // Score
+      const score = data.overall_score || 0;
+      document.getElementById('score-val').innerText = score;
+
+      const circle = document.getElementById('score-circle');
+      let color = '#10b981';
+      if (score < 60) color = '#ef4444';
+      else if (score < 80) color = '#f59e0b';
+      circle.style.background = `conic-gradient(${color} 0% ${score}%, rgba(255,255,255,0.05) ${score}% 100%)`;
+
+      // Counters
+      const summary = data.results?.severity_summary || { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+      document.getElementById('cnt-critical').innerText = summary.critical;
+      document.getElementById('cnt-high').innerText = summary.high;
+      document.getElementById('cnt-medium').innerText = summary.medium;
+      document.getElementById('cnt-low').innerText = summary.low + summary.info;
+
+      // Latency & Cache
+      const timeMs = data.processing_time_ms || 0;
+      const hit = data.cache_hit ? ' • ⚡ Cache Hit (70%+ Saved)' : '';
+      document.getElementById('latency-tag').innerText = `Completed in ${timeMs}ms${hit}`;
+
+      // Findings List
+      const container = document.getElementById('findings-list');
+      container.innerHTML = '';
+
+      const allFindings = [...(data.critical_issues || []), ...(data.warnings || []), ...(data.suggestions || [])];
+
+      if (allFindings.length === 0) {
+        container.innerHTML = '<div style="text-align: center; padding: 3rem; color: #10b981; font-weight: 700;">✅ Excellent! All agents passed with zero findings.</div>';
+        return;
+      }
+
+      allFindings.forEach(f => {
+        const card = document.createElement('div');
+        card.className = `finding-card ${f.severity.toLowerCase()}`;
+        card.innerHTML = `
+          <div class="finding-top">
+            <span class="finding-title">${f.title}</span>
+            <span class="badge-pill ${f.severity.toLowerCase()}">${f.severity}</span>
+          </div>
+          <div class="finding-meta">${f.message}</div>
+          ${f.code_snippet ? `<div class="code-box">Line ${f.line || '?'}: ${f.code_snippet}</div>` : ''}
+          ${f.suggestion ? `<div class="code-box fix"><strong>Suggested Fix:</strong><br>${f.suggestion}</div>` : ''}
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // Load initial preset
+    window.onload = () => loadPreset('vulnerable');
+  </script>
+</body>
+</html>
