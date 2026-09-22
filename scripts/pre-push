@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#
+# cerberus</> Git Pre-Push Hook
+# Blocks git push if critical flaws exist in modified files against target branch
+#
+
+set -e
+
+echo "[cerberus</>] Verifying repository health prior to push..."
+
+MODIFIED_FILES=$(git diff origin/main...HEAD --name-only --diff-filter=ACM 2>/dev/null | grep -E '\.(py|js|ts|sql)$' || true)
+
+if [ -z "$MODIFIED_FILES" ]; then
+    echo "[cerberus</>] No modified code files detected against upstream."
+    exit 0
+fi
+
+FAILED=0
+
+for FILE in $MODIFIED_FILES; do
+    if [ -f "$FILE" ]; then
+        python -m cerberus.cli review "$FILE" --blocking || FAILED=1
+    fi
+done
+
+if [ $FAILED -ne 0 ]; then
+    echo "[cerberus</>] ❌ Push blocked due to unresolved security or quality flaws."
+    exit 1
+fi
+
+echo "[cerberus</>] ✔ Repository verified. Proceeding with push."
+exit 0

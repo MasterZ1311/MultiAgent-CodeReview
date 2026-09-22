@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+#
+# cerberus</> Git Pre-Commit Hook
+# Inspects staged code files before allowing git commit
+#
+
+set -e
+
+echo "[cerberus</>] Inspecting staged files..."
+
+# Find staged python, javascript, sql files
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(py|js|ts|sql)$' || true)
+
+if [ -z "$STAGED_FILES" ]; then
+    echo "[cerberus</>] No staged code files to review."
+    exit 0
+fi
+
+FAILED=0
+
+for FILE in $STAGED_FILES; do
+    if [ -f "$FILE" ]; then
+        echo "[cerberus</>] Analyzing $FILE..."
+        # Call cerberus review CLI with blocking mode enabled
+        python -m cerberus.cli review "$FILE" --blocking || FAILED=1
+    fi
+done
+
+if [ $FAILED -ne 0 ]; then
+    echo ""
+    echo "[cerberus</>] ❌ Commit rejected! Fix the critical/high security or performance findings above."
+    echo "[cerberus</>] To bypass in an emergency, use 'git commit --no-verify'"
+    exit 1
+fi
+
+echo "[cerberus</>] ✔ All staged files passed review."
+exit 0
