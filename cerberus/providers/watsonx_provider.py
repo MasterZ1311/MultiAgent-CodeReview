@@ -14,6 +14,7 @@ logger = logging.getLogger("cerberus.providers.watsonx")
 
 class WatsonxProvider(BaseLLMProvider):
     def __init__(self):
+        super().__init__()
         self.api_key = settings.WATSONX_API_KEY
         self.project_id = settings.WATSONX_PROJECT_ID
         self.endpoint = settings.WATSONX_URL
@@ -42,11 +43,11 @@ class WatsonxProvider(BaseLLMProvider):
                     "temperature": 0.1
                 }
             }
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                res = await client.post(f"{self.endpoint}/v1/generate", json=payload, headers=headers)
-                if res.status_code == 200:
-                    data = res.json()
-                    return data.get("results", [{}])[0].get("generated_text")
+            client = await self.get_client()
+            res = await client.post(f"{self.endpoint}/v1/generate", json=payload, headers=headers, timeout=15.0)
+            if res.status_code == 200:
+                data = res.json()
+                return data.get("results", [{}])[0].get("generated_text")
         except Exception as e:
             logger.warning(f"watsonx API request failed: {e}")
         return None

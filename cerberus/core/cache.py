@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import time
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional
 from cerberus.config import settings
 
@@ -14,11 +15,12 @@ logger = logging.getLogger("cerberus.cache")
 
 
 class CacheManager:
-    def __init__(self):
+    def __init__(self, max_items: Optional[int] = None):
         self.enabled = settings.CACHE_ENABLED
         self.ttl = settings.CACHE_TTL_SECONDS
+        self.max_items = max_items if max_items is not None else settings.CACHE_MAX_ITEMS
         self.redis_client = None
-        self._memory_cache: Dict[str, Dict[str, Any]] = {}
+        self._memory_cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
         self.stats = {"hits": 0, "misses": 0}
 
     async def connect(self) -> None:
@@ -67,10 +69,11 @@ class CacheManager:
             except Exception as e:
                 logger.warning(f"Redis GET failed: {e}")
 
-        # 2. Try In-Memory
-        entry = self._memory_cache.get(key)
-        if entry:
+        # 2. Try In-Memory LRU
+        if key in self._memory_cache:
+            entry = self._memory_cache[key]
             if entry["expires_at"] > time.time():
+                self._memory_cache.move_to_end(key)
                 self.stats["hits"] += 1
                 return entry["data"]
             else:
@@ -92,11 +95,30 @@ class CacheManager:
             except Exception as e:
                 logger.warning(f"Redis SET failed: {e}")
 
-        # 2. Always set in Memory as well for local resilience
+        # 2. Always set in Memory as well for local resilience with LRU eviction
+        if key in self._memory_cache:
+            self._memory_cache.move_to_end(key)
+        else:
+            while len(self._memory_cache) >= self.max_items and self._memory_cache:
+                self._memory_cache.popitem(last=False)
+
         self._memory_cache[key] = {
             "data": value,
             "expires_at": time.time() + ttl
         }
+
+    def prune_expired(self) -> int:
+        """Remove all expired entries from in-memory cache. Returns count of purged items."""
+        now = time.time()
+        expired_keys = [k for k, v in self._memory_cache.items() if v["expires_at"] <= now]
+        for k in expired_keys:
+            del self._memory_cache[k]
+        return len(expired_keys)
+
+    def clear(self) -> None:
+        """Clear in-memory cache and reset statistics."""
+        self._memory_cache.clear()
+        self.stats = {"hits": 0, "misses": 0}
 
     @property
     def hit_rate(self) -> float:

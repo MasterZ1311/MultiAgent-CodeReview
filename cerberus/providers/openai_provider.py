@@ -13,6 +13,7 @@ logger = logging.getLogger("cerberus.providers.openai")
 
 class OpenAIProvider(BaseLLMProvider):
     def __init__(self):
+        super().__init__()
         self.api_key = settings.OPENAI_API_KEY
         self.model = settings.OPENAI_MODEL
 
@@ -36,11 +37,11 @@ class OpenAIProvider(BaseLLMProvider):
                 ],
                 "temperature": 0.1
             }
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                res = await client.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers)
-                if res.status_code == 200:
-                    data = res.json()
-                    return data["choices"][0]["message"]["content"]
+            client = await self.get_client()
+            res = await client.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=20.0)
+            if res.status_code == 200:
+                data = res.json()
+                return data["choices"][0]["message"]["content"]
         except Exception as e:
             logger.warning(f"OpenAI completion failed: {e}")
         return None
