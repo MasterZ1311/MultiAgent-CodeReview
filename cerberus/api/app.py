@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse
 from prometheus_client import CONTENT_TYPE_LATEST
 from cerberus import __version__
 from cerberus.api.v1 import agents, analytics, config, health, review
+from cerberus.config import settings
 from cerberus.core.cache import cache_manager
 from cerberus.core.database import init_db
 from cerberus.core.telemetry import get_prometheus_metrics
@@ -35,10 +36,15 @@ def create_app() -> FastAPI:
     )
 
     # CORS Configuration
+    allowed_origins = settings.cors_origins_list
+    allow_credentials = True
+    if "*" in allowed_origins:
+        allow_credentials = False
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=allowed_origins,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )

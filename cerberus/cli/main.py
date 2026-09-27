@@ -116,6 +116,25 @@ def create_api_key(
 ):
     """Generate a cryptographically secure cerberus API key."""
     raw_key, key_hash, prefix = generate_api_key(name=name)
+
+    async def _persist_key() -> None:
+        from cerberus.core.database import AsyncSessionLocal, init_db
+        from cerberus.models.database import ApiKeyRecord
+
+        await init_db()
+        async with AsyncSessionLocal() as session:
+            record = ApiKeyRecord(
+                key_hash=key_hash,
+                name=name,
+                prefix=prefix,
+                scopes="review:read,review:write",
+                is_active=True,
+            )
+            session.add(record)
+            await session.commit()
+
+    asyncio.run(_persist_key())
+
     console.print(Panel(
         f"[bold green]API Key created successfully![/bold green]\n\n"
         f"[bold]Key:[/bold] [yellow]{raw_key}[/yellow]\n"

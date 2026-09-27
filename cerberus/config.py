@@ -5,7 +5,18 @@ Supports loading from environment variables and .env files.
 
 from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, model_validator
+
+
+INSECURE_DEFAULT_SECRETS = {
+    "cerberus_dev_secret_key_change_in_production_32chars",
+    "cerberus_production_secret_key_change_me_now_1234",
+    "change_me_in_production",
+    "secret",
+    "changeme",
+    "password",
+    "admin",
+}
 
 
 class Settings(BaseSettings):
@@ -25,7 +36,9 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "cerberus_dev_secret_key_change_in_production_32chars"
     API_KEY_PREFIX: str = "cvai_"
     RATE_LIMIT_PER_HOUR: int = 100
+    RATE_LIMIT_MAX_TRACKED: int = 10000
     DEFAULT_DEV_API_KEY: str = "cvai_dev_key_123"
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8000,http://127.0.0.1:8000,http://127.0.0.1:3000"
 
     # Database Settings
     DATABASE_URL: str = "sqlite+aiosqlite:///./cerberus.db"
@@ -34,6 +47,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     CACHE_ENABLED: bool = True
     CACHE_TTL_SECONDS: int = 604800  # 7 days
+    CACHE_MAX_ITEMS: int = 1000
 
     # LLM Provider Configuration
     LLM_PROVIDER: str = "heuristic"  # Options: watsonx, openai, ollama, heuristic
@@ -52,10 +66,30 @@ class Settings(BaseSettings):
     SEVERITY_THRESHOLD: str = "medium"
     BLOCKING_MODE: bool = False
     PROMETHEUS_ENABLED: bool = True
+    MAX_CONCURRENT_BATCH_REVIEWS: int = 5
+    MAX_BATCH_SIZE: int = 100
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     @property
     def enabled_agents_list(self) -> List[str]:
         return [a.strip().lower() for a in self.ENABLED_AGENTS.split(",") if a.strip()]
+
+    @model_validator(mode="after")
+    def validate_production_security(self) -> "Settings":
+        if self.ENVIRONMENT.lower() in ("production", "prod"):
+            if not self.SECRET_KEY or self.SECRET_KEY in INSECURE_DEFAULT_SECRETS:
+                raise ValueError(
+                    "Production configuration error: Insecure default SECRET_KEY is not permitted in production. "
+                    "Set a unique, high-entropy SECRET_KEY via environment variable."
+                )
+            if len(self.SECRET_KEY) < 32:
+                raise ValueError(
+                    "Production configuration error: SECRET_KEY must be at least 32 characters long in production."
+                )
+        return self
 
 
 # Global singleton settings instance

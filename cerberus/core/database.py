@@ -36,11 +36,34 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def init_db() -> None:
-    """Initialize database tables."""
+    """Initialize database tables and seed development credentials."""
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database schema initialized successfully.")
+
+        # Seed default dev key in development mode
+        if settings.ENVIRONMENT == "development" and settings.DEFAULT_DEV_API_KEY:
+            async with AsyncSessionLocal() as session:
+                from sqlalchemy import select
+                from cerberus.core.security import hash_api_key
+                from cerberus.models.database import ApiKeyRecord
+
+                dev_hash = hash_api_key(settings.DEFAULT_DEV_API_KEY)
+                stmt = select(ApiKeyRecord).where(ApiKeyRecord.key_hash == dev_hash)
+                result = await session.execute(stmt)
+                existing = result.scalars().first()
+                if not existing:
+                    dev_record = ApiKeyRecord(
+                        key_hash=dev_hash,
+                        name="Default Development Key",
+                        prefix=settings.API_KEY_PREFIX,
+                        scopes="review:read,review:write,admin",
+                        is_active=True,
+                    )
+                    session.add(dev_record)
+                    await session.commit()
+                    logger.info("Default development API key seeded successfully.")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
         raise
