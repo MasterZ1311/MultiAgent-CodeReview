@@ -116,7 +116,7 @@ class ReviewOrchestrator:
                 return AgentResult(
                     name=agent_name,
                     status="failed",
-                    score=100.0,
+                    score=0.0,
                     execution_time_ms=int((time.perf_counter() - a_start) * 1000),
                     error=str(e),
                 )
@@ -133,6 +133,15 @@ class ReviewOrchestrator:
             scores[res.name] = res.score
             all_findings.extend(res.findings)
             agents_payload.append(res.model_dump())
+
+        # Determine review status
+        failed_count = sum(1 for res in agent_results if res.status == "failed")
+        if failed_count == len(agent_results) and len(agent_results) > 0:
+            review_status = "failed"
+        elif failed_count > 0:
+            review_status = "degraded"
+        else:
+            review_status = "completed"
 
         # Categorize findings by urgency
         critical_issues = [f for f in all_findings if f.severity in (SeverityEnum.CRITICAL, SeverityEnum.HIGH)]
@@ -151,7 +160,7 @@ class ReviewOrchestrator:
         if total_weight > 0:
             overall_score = sum(scores[name] * weights.get(name, 0.2) for name in scores) / total_weight
         else:
-            overall_score = 100.0
+            overall_score = 0.0 if failed_count > 0 else 100.0
         overall_score = round(max(0.0, min(100.0, overall_score)), 1)
 
         # Severity Summary
@@ -187,7 +196,7 @@ class ReviewOrchestrator:
 
         response = CodeReviewResponse(
             review_id=review_id,
-            status="completed",
+            status=review_status,
             created_at=now_iso,
             completed_at=completed_iso,
             cache_hit=False,
@@ -208,11 +217,12 @@ class ReviewOrchestrator:
             },
         )
 
-        # 5. Save to Cache
-        await cache_manager.set(cache_key, response.model_dump())
+        # 5. Save to Cache only if all agents completed successfully (prevent cache poisoning)
+        if review_status == "completed":
+            await cache_manager.set(cache_key, response.model_dump())
 
         # 6. Record Metrics
-        REVIEW_REQUESTS_TOTAL.labels(status="completed", language=request.language or "python").inc()
+        REVIEW_REQUESTS_TOTAL.labels(status=review_status, language=request.language or "python").inc()
         REVIEW_DURATION_SECONDS.observe(total_elapsed_ms / 1000.0)
 
         return response
