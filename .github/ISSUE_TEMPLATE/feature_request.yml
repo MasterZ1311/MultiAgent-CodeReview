@@ -1,0 +1,51 @@
+name: "✨ Feature Request"
+description: "Suggest an idea or new capability for Cerberus"
+title: "[FEATURE]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature! Please provide details about the problem and your ideal solution.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a problem or limitation? Please describe clearly.
+      placeholder: "I'm always frustrated when trying to audit..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution / Enhancement
+      description: Describe what you would like to see added or changed.
+      placeholder: "Add support for ISO 27001 regulatory checks in the Compliance Agent..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: target-area
+    attributes:
+      label: Target Component
+      options:
+        - "New Review Agent"
+        - "Existing Agent Enhancement"
+        - "LLM Provider Integration"
+        - "CLI Feature"
+        - "API Gateway & WebSockets"
+        - "CI/CD & Integrations (GitHub Action, GitLab CI)"
+        - "Documentation"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or features you've considered.
+    validations:
+      required: false

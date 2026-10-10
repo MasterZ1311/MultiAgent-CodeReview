@@ -1,0 +1,74 @@
+name: "🐛 Bug Report"
+description: "File a bug report to help improve Cerberus"
+title: "[BUG]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue! Please provide as much detail as possible to help us reproduce and fix it quickly.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: "When running the Security Agent on a file with raw SQL queries..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component / Agent
+      description: Which part of Cerberus is behaving unexpectedly?
+      options:
+        - "Agent: Security"
+        - "Agent: Performance"
+        - "Agent: Quality"
+        - "Agent: Architecture"
+        - "Agent: Compliance"
+        - "Orchestrator / Core"
+        - "FastAPI Gateway / WebSocket"
+        - "CLI (cerberus.cli)"
+        - "LLM Provider (watsonx / OpenAI / Ollama / Heuristic)"
+        - "Docker / Deployment"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps or code snippet needed to reproduce the behavior.
+      placeholder: |
+        1. Run `python -m cerberus.cli review --snippet "..."`
+        2. Inspect output
+        3. See unexpected exception / misclassification
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Stack Trace
+      description: Paste any error messages or tracebacks here.
+      render: shell
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment Info
+      description: OS version, Python version, LLM Provider used
+      placeholder: "Windows 11 / Ubuntu 22.04, Python 3.13, LLM_PROVIDER=heuristic"
+    validations:
+      required: false
