@@ -11,7 +11,7 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - ENVIRONMENT=production
-      - DATABASE_URL=postgresql+asyncpg://codevault:dev_password@db:5432/codevault_db
+      - DATABASE_URL=postgresql+asyncpg://codevault:${DB_PASSWORD:-dev_password}@db:5432/codevault_db
       - REDIS_URL=redis://redis:6379/0
       - CACHE_ENABLED=true
       - LLM_PROVIDER=${LLM_PROVIDER:-heuristic}
@@ -33,7 +33,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: codevault
-      POSTGRES_PASSWORD: dev_password
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-dev_password}
       POSTGRES_DB: codevault_db
     ports:
       - "5432:5432"
