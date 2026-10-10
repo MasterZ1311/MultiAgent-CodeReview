@@ -37,38 +37,41 @@ Unlike traditional static analysis tools that apply rigid rules, CodeVault AI us
 
 ---
 
-## What is CodeVault AI?
+## What is cerberus</>?
 
-CodeVault AI is a **multi-agent code review orchestration platform** that analyzes your code from multiple expert perspectives simultaneously:
+cerberus</> (project codename: CodeVault AI) is an autonomous **enterprise multi-agent code review orchestration platform** that analyzes source code across 5 specialized perspectives simultaneously:
 
-1. **Security Agent** - Identifies vulnerabilities, security anti-patterns, and compliance issues
-2. **Performance Agent** - Detects performance bottlenecks and suggests optimizations
-3. **Code Quality Agent** - Reviews maintainability, readability, and best practices
+1. **Security Agent** — Detects injection flaws (CWE-89, CWE-78), hardcoded secrets (CWE-798), weak cryptography, and computes CVSS 3.1 severity scores.
+2. **Performance Agent** — Identifies quadratic O(n²) loops, database N+1 queries, string concatenation memory churn, and calculates latency savings.
+3. **Code Quality Agent** — Evaluates cyclomatic complexity, missing docstrings, long functions, bare except clauses, and maintainability.
+4. **Architecture Agent** — Analyzes component coupling, deep relative imports, modularity, and architectural boundary violations.
+5. **Compliance Agent** — Audits regulatory mandates for HIPAA (ePHI logging, TLS), GDPR (data minimization, erasure), SOC 2, and PCI-DSS (Luhn credit card validation).
 
-Each agent operates independently but collaboratively, providing comprehensive feedback that goes beyond what any single tool or rule set can offer.
+Each agent operates independently in parallel via the `ReviewOrchestrator`, providing synthesized and prioritized findings.
 
 ### The Problem We Solve
 
-Solo developers and small teams face a challenge:
+Solo developers and engineering teams face a challenge:
 - **Manual code review** is time-consuming and inconsistent
-- **Traditional static analysis** tools produce too many false positives and lack context
+- **Traditional static analysis** tools produce high false positives and lack context
 - **Enterprise solutions** are too complex and expensive
-- **AI coding assistants** help write code but don't review it comprehensively
+- **AI coding assistants** help generate code but don't review it comprehensively
 
-CodeVault AI bridges this gap by providing intelligent, contextual code review that's:
-- Easy to set up and use
-- Affordable for small teams
-- Privacy-respecting
-- Integrated into existing workflows
+cerberus</> bridges this gap by providing intelligent, contextual code review that is:
+- Easy to set up with zero cloud credentials (`LLM_PROVIDER=heuristic`)
+- Scalable with IBM watsonx foundation models (`ibm/granite-3-8b-instruct`)
+- Privacy-respecting with local offline support
+- Integrated into existing workflows with Git hooks and real-time WebSockets
 
 ---
 
 ## Key Features
 
 ### 🤖 Multi-Agent Intelligence
-- Three specialized AI agents working in parallel
-- Context-aware analysis that understands your codebase
-- Natural language explanations for every finding
+- Five specialized AI agents working in parallel via `ReviewOrchestrator`
+- Real-time review streaming via WebSockets (`/api/v1/review/{review_id}/ws`)
+- Context-aware analysis that understands language, imports, and AST structure
+- Natural language explanations and concrete fix suggestions for every finding
 
 ### 🚀 Developer-Friendly Integration
 - Git pre-commit and pre-push hooks
@@ -497,76 +500,75 @@ API Gateway authenticates & validates
 Request queued in Review Coordinator
 ```
 
-**Phase 2: Analysis** (5-30 seconds)
+**Phase 2: Analysis & Parallel Execution** (10ms - 2s)
 ```
-Coordinator generates cache key
+ReviewOrchestrator computes deterministic cache key (cvai:cache:<sha256>)
         ↓
-Check Redis cache ─── HIT → Return cached result (fast path)
+Check Redis cache ─── HIT → Return cached CodeReviewResponse (fast path)
         ↓ MISS
-Extract code context (file type, imports, etc.)
+Check in-memory LRU cache fallback
+        ↓ MISS
+Identify active agents: Security, Performance, Quality, Architecture, Compliance
         ↓
-Schedule agents (Security, Performance, Quality)
-        ↓
-Agents execute in parallel:
+ReviewOrchestrator executes all active agents in parallel (asyncio.gather):
   │
-  ├─→ Security Agent → OpenAI GPT-4 → Security findings
-  ├─→ Performance Agent → OpenAI GPT-4 → Performance findings
-  └─→ Quality Agent → OpenAI GPT-4 → Quality findings
+  ├─→ Security Agent      → Heuristic/AST + LLM → Vulnerability findings & CVSS
+  ├─→ Performance Agent   → Heuristic/AST + LLM → Algorithmic & N+1 findings
+  ├─→ Quality Agent       → Heuristic/AST + LLM → Complexity & style findings
+  ├─→ Architecture Agent  → Heuristic/AST + LLM → Coupling & boundary findings
+  └─→ Compliance Agent    → Regulatory audit    → HIPAA, GDPR, SOC 2, PCI-DSS
         ↓
-All agents complete
+All agents report AgentResult (crashed agents score 0.0 with status "failed")
 ```
 
-**Phase 3: Aggregation** (100-500ms)
+**Phase 3: Synthesis, Scoring & Status Determination** (10-50ms)
 ```
-Result Aggregator receives all findings
+ReviewOrchestrator aggregates all findings
         ↓
-Deduplicate similar findings
+Calculate weighted overall score (0.0 - 100.0):
+  - Security (40%)
+  - Performance (25%)
+  - Quality (25%)
+  - Architecture (5%)
+  - Compliance (5%)
         ↓
-Calculate aggregate scores:
-  - Overall score (0-100)
-  - Security score (0-100)
-  - Performance score (0-100)
-  - Quality score (0-100)
+Determine status:
+  - "completed" (all agents succeeded)
+  - "degraded"  (one or more agents failed)
+  - "failed"    (all agents failed)
         ↓
-Prioritize findings by severity
-        ↓
-Format output (JSON/Markdown/HTML)
+Assess blocking threshold (critical/high severity issues trigger block)
 ```
 
-**Phase 4: Storage & Response** (50-200ms)
+**Phase 4: Persistence, WebSocket Broadcast & Response** (20-100ms)
 ```
-Store review in database
+Persist review and findings to database asynchronously (_persist_review_record)
         ↓
-Cache results in Redis
+If status == "completed": Cache response in Redis & In-Memory LRU (prevents cache poisoning)
         ↓
-Update metrics (Prometheus)
+Broadcast completion event to active WebSockets (/api/v1/review/{review_id}/ws)
         ↓
-Return formatted response to client
+Update Prometheus telemetry metrics (review counts, durations, finding counters)
         ↓
-Git hook displays results
-        ↓
-Developer sees feedback (optionally blocks commit)
+Return CodeReviewResponse to client / CLI
 ```
 
 ### Caching Strategy Details
 
-**Cache Key Calculation:**
+**Cache Key Calculation (`cerberus.core.cache.CacheManager`):**
 ```python
-def generate_cache_key(code: str, config: Config) -> str:
-    data = {
-        "code_hash": hashlib.sha256(code.encode()).hexdigest(),
-        "agent_versions": get_agent_versions(),
-        "config_hash": hash_config(config),
-        "llm_model": config.llm_model
-    }
-    return f"review:{hashlib.sha256(json.dumps(data).encode()).hexdigest()}"
+def compute_cache_key(self, code: str, language: str = "python", agents: Optional[List[str]] = None) -> str:
+    normalized_code = code.strip().replace("\r\n", "\n")
+    agents_str = ",".join(sorted(agents or []))
+    payload = f"{language.lower()}:{agents_str}:{normalized_code}"
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"cvai:cache:{digest}"
 ```
 
-**Cache Invalidation Triggers:**
-- Agent version upgrade
-- Configuration change
-- Manual cache clear command
-- TTL expiration (7 days default)
+**Cache Eviction & Invalidation:**
+- Redis TTL: 7 days (`CACHE_TTL_SECONDS = 604800`)
+- In-Memory LRU: Strictly bounded by `CACHE_MAX_ITEMS` (default 1000) using `OrderedDict.popitem(last=False)`
+- Degraded or failed reviews are never saved to cache
 
 ---
 
@@ -576,35 +578,68 @@ def generate_cache_key(code: str, config: Config) -> str:
 
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
-| **API Framework** | FastAPI 0.104+ | Async support, auto-docs, high performance, type safety |
-| **Language** | Python 3.11+ | Rich ecosystem, excellent AI/ML libraries, readable |
-| **ASGI Server** | Uvicorn | Production-grade async server, lightweight |
-| **Agent Framework** | LangChain 0.1+ | LLM abstraction, prompt management, agent patterns |
+| **API Framework** | FastAPI 0.141+ | Async ASGI framework, OpenAPI docs, dependency injection |
+| **Language Runtime** | Python 3.13 / 3.11+ | Modern typing, asyncio improvements, rich AI ecosystem |
+| **ASGI Server** | Uvicorn 0.40+ | High-throughput production ASGI web server |
+| **Agent Orchestration** | LangChain 1.3+ & LangGraph 1.2+ | Agent workflow modeling, state management |
+| **Data Validation** | Pydantic 2.12+ & pydantic-settings 2.14+ | High-performance Rust-backed schema validation |
+| **CLI & Terminal** | Typer 0.24+ & Rich 14.3+ | Expressive command line interface and colored tables |
 
-### Storage & Caching
+### Storage, Caching & Security
 
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
-| **Database (POC)** | SQLite 3.40+ | Zero config, portable, perfect for solo devs |
-| **Database (Production)** | PostgreSQL 15+ | ACID compliance, JSON support, mature ecosystem |
-| **Cache** | Redis 7+ | Extremely fast, persistent, pub/sub for future features |
-| **Object Storage** | Local filesystem / S3 | Code snapshots, review archives |
+| **ORM / Data Access** | SQLAlchemy 2.0+ | Modern async ORM supporting SQLite and PostgreSQL |
+| **Local Database** | aiosqlite 0.22+ | Zero-configuration async SQLite for development |
+| **Production Database**| PostgreSQL 15+ (asyncpg) | Enterprise relational persistence with ACID compliance |
+| **Cache Tier** | Redis 8.1+ & In-Memory LRU | Two-tier caching with SHA-256 fingerprinting |
+| **Security & Auth** | python-jose 3.5+ & hashlib | SHA-256 API key hashing, token verification |
 
-### LLM Integration
+### LLM Foundation Model Integrations
 
-| Provider | Models | Use Case |
-|----------|--------|----------|
-| **OpenAI** | GPT-4, GPT-4-turbo, GPT-3.5 | Best quality, fastest, highest cost |
-| **Anthropic** | Claude 3 (Opus, Sonnet) | Great quality, long context, moderate cost |
-| **Ollama** | CodeLlama, Mistral, Llama2 | Privacy-first, zero cost, local execution |
-| **Azure OpenAI** | Same as OpenAI | Enterprise compliance, existing Azure customers |
+| Provider | Model / Engine | Characteristics |
+|----------|----------------|-----------------|
+| **Heuristic Engine** | Python AST & Regex Evaluator | **Default zero-config**, offline, deterministic, sub-15ms |
+| **IBM watsonx.ai** | `ibm/granite-3-8b-instruct` | **Primary enterprise LLM**, IAM OAuth authentication |
+| **OpenAI** | `gpt-4o` | Cloud reasoning via pooled persistent HTTP client sessions |
+| **Ollama** | `codellama`, `llama3` | On-premise local weights execution |
 
 ### Deployment & Operations
 
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
-| **Containerization** | Docker 24+ | Consistent environments, easy distribution |
-| **Orchestration (Local)** | Docker Compose | Simple multi-container management |
+| **Containerization** | Docker 24+ | Builds `cerberus` package from root `Dockerfile` |
+| **Local Orchestration**| Docker Compose | Multi-container setup (`cerberus-api`, `cerberus-postgres`, `cerberus-redis`) |
+| **Metrics** | Prometheus Client 0.26+ | Standard metrics exposed at `/metrics` |
+| **Test Framework** | pytest 9.1+, pytest-asyncio, httpx2 | Automated test suite (338+ passing tests) |
+
+---
+
+## Deployment Architecture
+
+### Local Development (Docker Compose)
+
+```
+┌────────────────────────────────────────────────────────┐
+│                   Host Machine                         │
+│                                                        │
+│  ┌──────────────────────────────────────────────────┐ │
+│  │               Docker Compose                     │ │
+│  │                                                  │ │
+│  │  ┌─────────────────────────┐                     │ │
+│  │  │  cerberus-api           │                     │ │
+│  │  │  (FastAPI on Port 8000) │                     │ │
+│  │  └───────────┬─────────────┘                     │ │
+│  │              │                                   │ │
+│  │     ┌────────┴────────┐                          │ │
+│  │     ▼                 ▼                          │ │
+│  │  ┌──────────────┐  ┌──────────────────────────┐  │ │
+│  │  │cerberus-redis│  │    cerberus-postgres     │  │ │
+│  │  │(Port 6379)   │  │    (Port 5432)           │  │ │
+│  │  └──────────────┘  └──────────────────────────┘  │ │
+│  └──────────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────┘
+```
 | **Orchestration (Cloud)** | Kubernetes 1.28+ | Scalable, cloud-agnostic, production-ready |
 | **Monitoring** | Prometheus + Grafana | Industry standard, rich ecosystem |
 | **Logging** | Python logging + Loki | Structured logs, Grafana integration |

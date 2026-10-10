@@ -1,340 +1,195 @@
 # MultiAgent-CodeReview
 
-**Autonomous Multi-Agent Code Review & Quality Assurance System (CodeVault AI / Cerberus)**
+**cerberus</> Autonomous Multi-Agent Code Review & Quality Assurance System**
+*(CodeVault AI Architecture Concept)*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com/r/codevault/api)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Tests Passing](https://img.shields.io/badge/tests-338%20passed-brightgreen.svg)](tests/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](docs/08-developer-guide.md)
 
-CodeVault AI is an intelligent code review system that uses specialized AI agents to analyze your code from multiple perspectives—security, performance, and quality—providing expert-level insights automatically.
+**cerberus</>** is an enterprise-grade multi-agent code review platform that inspects source code across five independent, specialized dimensions: **Security**, **Performance**, **Quality**, **Architecture**, and **Regulatory Compliance**. It supports flexible LLM backends including **IBM watsonx (IBM Granite)**, **OpenAI**, **Ollama**, and includes a zero-config deterministic **Heuristic Engine** that runs 100% offline without credentials.
 
 ---
 
 ## ✨ Key Features
 
-🤖 **Multi-Agent Intelligence**
-- Three specialized AI agents (Security, Performance, Quality)
-- Parallel execution for fast results
-- Natural language explanations for every finding
+🤖 **5 Specialized Review Agents**
+- **Security Agent**: CWE-89 (SQL Injection), CWE-798 (Hardcoded Secrets), CWE-78 (Command Injection), CWE-328 (Weak Cryptography), CWE-502 (Insecure Deserialization), with CVSS 3.1 scoring.
+- **Performance Agent**: Algorithmic complexity ($O(n^2)$ nested iterations), database N+1 query patterns, and string concatenation memory churn.
+- **Quality Agent**: PEP 257 docstring completeness, cognitive complexity, monolithic functions, bare except clauses, and wildcard import pollution.
+- **Architecture Agent**: Structural modularity scoring, deep relative import anti-patterns (`....`), and cyclic dependency risks.
+- **Compliance Agent**: Automated auditing against **HIPAA** (ePHI transit encryption), **GDPR** (erasure & minimization), **SOC 2** (secrets & RBAC), **PCI-DSS v4.0** (Luhn card number validation, CVV storage prohibition), and **CCPA**.
 
-🚀 **Developer-Friendly**
-- 5-minute Docker Compose setup
-- Git pre-commit/pre-push hooks
-- RESTful API for custom integrations
-- CLI tool for on-demand reviews
+⚡ **Dual Execution Engines**
+- **Zero-Config Offline Heuristics**: `LLM_PROVIDER=heuristic` works immediately out of the box with zero credentials, zero network latency, and instant deterministic analysis.
+- **IBM watsonx Enterprise Integration**: `LLM_PROVIDER=watsonx` leverages IBM Granite foundation models (`ibm/granite-3-8b-instruct`) with automated IAM OAuth token rotation.
 
-🔒 **Privacy-Focused**
-- Support for local LLM models (Ollama)
-- OpenAI, Anthropic, Azure OpenAI integration
-- Configurable data retention
-- Air-gapped deployment support
-
-⚡ **Fast & Efficient**
-- Intelligent result caching (70%+ hit rate)
-- Incremental reviews (only changed code)
-- Batch processing for multiple files
-
-📊 **Actionable Insights**
-- Severity-based prioritization
-- Specific code recommendations
-- Export to JSON, Markdown, HTML, SARIF
+🚀 **Developer & Pipeline Ready**
+- Full RESTful API with FastAPI and WebSocket real-time progress streaming.
+- Typer-powered CLI (`cerberus.cli`) for local reviews, service management, and health checks.
+- Prometheus telemetry metrics (`/metrics`) and Redis/in-memory LRU caching.
+- Automated dev key auto-seeding (`cvai_dev_key_123`) for frictionless onboarding.
 
 ---
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### 1. Installation
 
-- Docker & Docker Compose
-- OpenAI API key (or Ollama for local LLMs)
-
-### Installation (5 Minutes)
+Clone repository and install pinned dependencies:
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/codevault-ai/codevault.git
-cd codevault
+git clone https://github.com/MasterZ1311/MultiAgent-CodeReview.git
+cd MultiAgent-CodeReview
 
-# 2. Configure
-cp .env.example .env
-echo "OPENAI_API_KEY=sk-your-key-here" >> .env
-
-# 3. Start services
-docker-compose up -d
-
-# 4. Verify installation
-curl http://localhost:8000/api/v1/health
+# Install dependencies (Python 3.13+)
+pip install -r requirements.txt
 ```
 
-### First Review
+### 2. Configuration & Running Without Credentials
+
+By default, Cerberus runs with the zero-config heuristic engine. No external API keys or cloud accounts are required:
 
 ```bash
-# Create API key
-docker-compose exec api python -m codevault.cli create-api-key --name "my-key"
+# Copy example configuration
+cp .env.example .env
 
-# Review code
+# Start the API server directly (defaults to LLM_PROVIDER=heuristic)
+python -m cerberus.cli serve --host 0.0.0.0 --port 8000
+```
+
+Alternatively, launch the containerized stack using Docker Compose:
+
+```bash
+docker-compose up -d
+```
+
+### 3. Running with IBM watsonx (Granite Models)
+
+To connect Cerberus to IBM Cloud watsonx:
+
+1. Set `LLM_PROVIDER=watsonx` in your `.env` file.
+2. Provide your IBM Cloud credentials:
+   ```bash
+   LLM_PROVIDER=watsonx
+   WATSONX_API_KEY=your-ibm-cloud-api-key
+   WATSONX_PROJECT_ID=your-watsonx-project-id
+   WATSONX_URL=https://us-south.ml.cloud.ibm.com
+   WATSONX_MODEL_ID=ibm/granite-3-8b-instruct
+   ```
+3. Cerberus handles dynamic IAM OAuth bearer token exchange (`https://iam.cloud.ibm.com/identity/token`), token caching, and proactive renewal automatically.
+4. See [`WATSONX_INTEGRATION.md`](WATSONX_INTEGRATION.md) for detailed IAM permissions and setup guidance.
+
+---
+
+## 💻 CLI Usage
+
+The Cerberus CLI provides convenient commands for development and automation:
+
+```bash
+# Health Check
+python -m cerberus.cli health
+
+# Review a code snippet
+python -m cerberus.cli review --snippet "import os
+API_KEY = 'sk-1234567890'
+def get_user(user_id):
+    query = f'SELECT * FROM users WHERE id = {user_id}'
+    return db.execute(query)"
+
+# Review a local source file
+python -m cerberus.cli review --file path/to/source.py
+
+# Create a new API key
+python -m cerberus.cli create-api-key --name "ci-token"
+
+# Start the API server
+python -m cerberus.cli serve --host 0.0.0.0 --port 8000
+```
+
+---
+
+## 📡 API Usage
+
+In development mode (`ENVIRONMENT=development`), the default API key `cvai_dev_key_123` is automatically seeded:
+
+```bash
+# Submit code for multi-agent review
 curl -X POST http://localhost:8000/api/v1/review \
-  -H "Authorization: Bearer cvai_YOUR_API_KEY" \
+  -H "Authorization: Bearer cvai_dev_key_123" \
   -H "Content-Type: application/json" \
   -d '{
-    "code": "def login(user, pwd):\n    if user == \"admin\" and pwd == \"admin\":\n        return True",
+    "code": "def query_user(user_id):\n    return db.execute(f\"SELECT * FROM users WHERE id = {user_id}\")",
     "language": "python"
   }'
 ```
 
-**Result:** CodeVault AI detects hardcoded credentials (Critical) and weak authentication (High).
+```bash
+# Liveness health check (no auth required)
+curl http://localhost:8000/api/v1/health
 
----
-
-## 📖 Architecture
-
-```
-┌─────────────┐
-│   Client    │  Git Hooks, CLI, API
-└──────┬──────┘
-       │
-┌──────▼──────────────────────┐
-│     FastAPI Gateway         │  Authentication, Rate Limiting
-└──────┬──────────────────────┘
-       │
-┌──────▼──────────────────────┐
-│   Review Coordinator        │  Orchestration, Caching
-└──────┬──────────────────────┘
-       │
-       ├──────────┬──────────┬────────────┐
-       ▼          ▼          ▼            ▼
-┌──────────┐ ┌──────────┐ ┌──────────┐
-│ Security │ │Performance│ │  Quality │  Specialized AI Agents
-│  Agent   │ │  Agent    │ │  Agent   │
-└────┬─────┘ └────┬──────┘ └────┬─────┘
-     │            │             │
-     └────────────┼─────────────┘
-                  ▼
-         ┌────────────────┐
-         │  LLM Provider  │  OpenAI, Anthropic, Ollama
-         └────────────────┘
+# Readiness check (no auth required)
+curl http://localhost:8000/api/v1/ready
 ```
 
-**Agents:**
-- **Security Agent**: Detects vulnerabilities (SQL injection, XSS, secrets, weak crypto)
-- **Performance Agent**: Finds bottlenecks (O(n²) loops, N+1 queries, memory leaks)
-- **Code Quality Agent**: Reviews maintainability (naming, structure, documentation)
-
 ---
 
-## 📚 Documentation
+## 🧪 Testing & Verification
 
-### Getting Started
-- 📖 **[Installation & Setup Guide](docs/04-installation-setup.md)** - Comprehensive setup instructions
-- 🏗️ **[Architecture Overview](docs/01-architecture-overview.md)** - System design and components
-- 🔌 **[API Reference](docs/02-api-reference.md)** - Complete API documentation
-
-### Configuration & Operations
-- ⚙️ **[Configuration Reference](docs/05-configuration-reference.md)** - All configuration options
-- 📊 **[Monitoring & Operations](docs/06-monitoring-operations.md)** - Production operations guide
-- 🔒 **[Security & Compliance](docs/07-security-compliance.md)** - Security best practices
-
-### Development
-- 🤖 **[Agent Specifications](docs/03-agent-specifications.md)** - How agents work
-- 👨‍💻 **[Developer Guide](docs/08-developer-guide.md)** - Contributing and extending
-- ❓ **[FAQ](docs/FAQ.md)** - Frequently asked questions
-
----
-
-## 🎯 Use Cases
-
-### 1. Pre-Commit Code Review
+Execute the full automated test suite (338 tests):
 
 ```bash
-# Install git hook
-codevault init
-
-# Automatically reviews code on every commit
-git commit -m "Add login feature"
-# → CodeVault AI reviews changes
-# → Blocks commit if critical issues found
-```
-
-### 2. CI/CD Integration
-
-```yaml
-# .github/workflows/code-review.yml
-- name: Run CodeVault AI
-  run: |
-    codevault-cli review --path . --format sarif > results.sarif
-    
-- name: Upload results
-  uses: github/codeql-action/upload-sarif@v2
-  with:
-    sarif_file: results.sarif
-```
-
-### 3. IDE Integration
-
-```python
-# VS Code extension
-result = codevault.review(active_file)
-display_inline_suggestions(result)
+python -m pytest tests/ -q --tb=short
 ```
 
 ---
 
-## 🔧 Configuration
+## 🏗️ Architecture
 
-### LLM Providers
-
-**OpenAI (Recommended for best quality):**
-```yaml
-llm:
-  provider: openai
-  openai:
-    api_key: ${OPENAI_API_KEY}
-    model: gpt-4-turbo-preview
 ```
-
-**Ollama (Free, local, privacy-first):**
-```yaml
-llm:
-  provider: ollama
-  ollama:
-    base_url: http://localhost:11434
-    model: codellama
-```
-
-**Anthropic Claude:**
-```yaml
-llm:
-  provider: anthropic
-  anthropic:
-    api_key: ${ANTHROPIC_API_KEY}
-    model: claude-3-sonnet-20240229
-```
-
-### Agent Configuration
-
-```yaml
-agents:
-  security:
-    enabled: true
-    severity_threshold: high
-    secret_scanning: true
-  
-  performance:
-    enabled: true
-    complexity_threshold: "O(n²)"
-  
-  quality:
-    enabled: true
-    style_guide: pep8
-    max_function_length: 50
+┌───────────────────────────────────────────────────────────────┐
+│                 Clients: CLI, Git Hooks, API                  │
+└───────────────────────────────┬───────────────────────────────┘
+                                │ HTTP / WebSocket
+┌───────────────────────────────▼───────────────────────────────┐
+│              FastAPI Gateway (cerberus/api/)                  │
+│       Authentication (cvai_*), Rate Limiting, CORS, Cache     │
+└───────────────────────────────┬───────────────────────────────┘
+                                │
+┌───────────────────────────────▼───────────────────────────────┐
+│     Review Orchestrator (cerberus/agents/orchestrator.py)     │
+└───────┬───────────┬───────────┼───────────┬───────────┬───────┘
+        │           │           │           │           │
+        ▼           ▼           ▼           ▼           ▼
+   ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
+   │Security │ │Perform. │ │ Quality │ │Architect│ │Complian.│
+   │  Agent  │ │  Agent  │ │  Agent  │ │  Agent  │ │  Agent  │
+   └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘
+        │           │           │           │           │
+        └───────────┴───────────┼───────────┴───────────┘
+                                ▼
+         ┌──────────────────────────────────────────────┐
+         │              Provider Layer                  │
+         │  HeuristicEngine  │  WatsonxProvider (IAM)   │
+         │  OpenAIProvider   │  OllamaProvider          │
+         └──────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🌟 Examples
+## 📚 Documentation Index
 
-### Python - Security Issues
-
-**Code:**
-```python
-import os
-
-API_KEY = "sk-1234567890"  # ❌ Hardcoded secret
-
-def get_user(user_id):
-    query = f"SELECT * FROM users WHERE id = {user_id}"  # ❌ SQL injection
-    return db.execute(query)
-```
-
-**CodeVault AI Findings:**
-- 🔴 **Critical**: Hardcoded API key detected
-- 🔴 **Critical**: SQL injection vulnerability
-- 💡 **Recommendation**: Use environment variables and parameterized queries
-
-### JavaScript - Performance Issues
-
-**Code:**
-```javascript
-function findDuplicates(items) {
-  const duplicates = [];
-  for (let i = 0; i < items.length; i++) {  // ❌ O(n²) complexity
-    for (let j = i + 1; j < items.length; j++) {
-      if (items[i] === items[j]) {
-        duplicates.push(items[i]);
-      }
-    }
-  }
-  return duplicates;
-}
-```
-
-**CodeVault AI Findings:**
-- 🟡 **High**: O(n²) algorithmic complexity
-- 💡 **Recommendation**: Use a Set for O(n) solution
-- 📈 **Impact**: 1000x faster for large inputs
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! See our [Developer Guide](docs/08-developer-guide.md) for:
-- Setting up development environment
-- Creating custom agents
-- Adding new features
-- Testing guidelines
-
-**Quick Start for Contributors:**
-```bash
-git clone https://github.com/codevault-ai/codevault.git
-cd codevault
-pip install -e ".[dev]"
-pytest
-```
-
----
-
-## 📊 Project Status
-
-- ✅ **Core Features**: Complete
-- ✅ **Documentation**: Complete
-- 🚧 **IDE Plugins**: In Progress
-- 📋 **Planned**: Team collaboration features, historical trend analysis
+- 🏗️ **[Architecture Overview](docs/01-architecture-overview.md)** - Detailed system architecture and data flows
+- 🔌 **[API Reference](docs/02-api-reference.md)** - REST and WebSocket endpoint specifications
+- 🤖 **[Agent Specifications](docs/03-agent-specifications.md)** - Deep dive into all 5 specialized agents
+- 📖 **[Installation & Setup Guide](docs/04-installation-setup.md)** - Production Docker and local setup
+- ⚙️ **[Configuration Reference](docs/05-configuration-reference.md)** - Environment variables and options
+- 📊 **[Monitoring & Operations](docs/06-monitoring-operations.md)** - Prometheus metrics and Grafana alerts
+- 🔵 **[IBM watsonx Integration Guide](WATSONX_INTEGRATION.md)** - IAM credentials, Granite models, and setup
 
 ---
 
 ## 📜 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-Built with:
-- [FastAPI](https://fastapi.tiangolo.com/) - Modern web framework
-- [LangChain](https://langchain.com/) - LLM framework
-- [OpenAI](https://openai.com/) - GPT models
-- [Anthropic](https://anthropic.com/) - Claude models
-- [Ollama](https://ollama.ai/) - Local LLM runtime
-
----
-
-## 📞 Support
-
-- 📧 Email: support@codevault.ai
-- 💬 Discord: [Join our community](https://discord.gg/codevault)
-- 🐛 Issues: [GitHub Issues](https://github.com/codevault-ai/codevault/issues)
-- 📖 Documentation: [docs.codevault.ai](https://docs.codevault.ai)
-
----
-
-## ⭐ Star History
-
-If you find CodeVault AI useful, please consider starring the repository!
-
-[![Star History Chart](https://api.star-history.com/svg?repos=codevault-ai/codevault&type=Date)](https://star-history.com/#codevault-ai/codevault&Date)
-
----
-
-**Built with ❤️ for developers who care about code quality**

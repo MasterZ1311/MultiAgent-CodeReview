@@ -15,10 +15,14 @@
 - [Core Endpoints](#core-endpoints)
   - [Submit Code Review](#submit-code-review)
   - [Get Review Status](#get-review-status)
+  - [Get Review Results](#get-review-results)
   - [Batch Review Submission](#batch-review-submission)
+  - [Submit Review Feedback](#submit-review-feedback)
+  - [Live Review WebSocket Stream](#live-review-websocket-stream)
+  - [Repository Analytics](#repository-analytics)
   - [List Available Agents](#list-available-agents)
-  - [Update Configuration](#update-configuration)
-  - [Health Check](#health-check)
+  - [System Configuration](#system-configuration)
+  - [Health Check & Readiness Probe](#health-check--readiness-probe)
 - [Webhooks](#webhooks)
 - [SDK Examples](#sdk-examples)
 - [Common Integration Patterns](#common-integration-patterns)
@@ -56,21 +60,22 @@ CodeVault AI uses API key authentication for all non-health check endpoints.
 ### Obtaining an API Key
 
 **Local Development:**
+In local development mode (`ENVIRONMENT=development`), the default API key `cvai_dev_key_123` is automatically seeded and ready for immediate use.
+
+You can also create a new API key using the CLI:
 ```bash
-# Generate an API key
-docker-compose exec api python -m codevault.cli create-api-key --name "my-dev-key"
+python -m cerberus.cli create-api-key --name "my-dev-key"
 
 # Output:
 # API Key created successfully!
 # Key: cvai_1234567890abcdefghijklmnop
 # Name: my-dev-key
-# Keep this key secure - it won't be shown again!
 ```
 
 **Production Deployment:**
 ```bash
 # Using the CLI
-codevault-cli auth create-key --name "production-key" --scopes "review:read,review:write"
+python -m cerberus.cli create-api-key --name "production-key"
 ```
 
 ### Using API Keys
@@ -78,8 +83,8 @@ codevault-cli auth create-key --name "production-key" --scopes "review:read,revi
 Include the API key in the `Authorization` header with the `Bearer` scheme:
 
 ```bash
-curl -H "Authorization: Bearer cvai_your_api_key_here" \
-     https://api.codevault.ai/api/v1/review
+curl -H "Authorization: Bearer cvai_dev_key_123" \
+     http://localhost:8000/api/v1/review
 ```
 
 **Authentication Errors:**
@@ -675,6 +680,66 @@ done
 
 ---
 
+### Get Review Results
+
+Retrieve full synthesized review results, agent findings, security vulnerabilities, and remediation recommendations.
+
+**Endpoint:** `GET /api/v1/review/{review_id}/results`
+
+**Request Headers:**
+```http
+Authorization: Bearer cvai_dev_key_123
+```
+
+**Example:**
+```bash
+curl -X GET http://localhost:8000/api/v1/review/rev_8f7e6d5c4b3a2918/results \
+  -H "Authorization: Bearer cvai_dev_key_123"
+```
+
+**Response (200 OK):**
+```json
+{
+  "review_id": "rev_8f7e6d5c4b3a2918",
+  "status": "completed",
+  "created_at": "2026-10-10T10:30:00Z",
+  "completed_at": "2026-10-10T10:30:02Z",
+  "cache_hit": false,
+  "blocking": false,
+  "should_block": false,
+  "overall_score": 85.0,
+  "processing_time_ms": 1420,
+  "critical_issues": [],
+  "warnings": [
+    {
+      "id": "SEC-002",
+      "severity": "high",
+      "category": "security",
+      "title": "Hardcoded API Secret Detected",
+      "message": "Potential API credential embedded in source file.",
+      "line": 3,
+      "cwe_id": "CWE-798",
+      "cvss_score": 7.5,
+      "recommendation": "Migrate credential to environment variable or secret manager."
+    }
+  ],
+  "suggestions": [
+    {
+      "id": "QUAL-001",
+      "severity": "medium",
+      "category": "quality",
+      "title": "Missing Function Docstring",
+      "message": "Function calculate_total lacks a docstring description.",
+      "line": 1,
+      "recommendation": "Add a descriptive docstring following PEP 257."
+    }
+  ],
+  "agents_scheduled": ["security", "performance", "quality", "architecture", "compliance"]
+}
+```
+
+---
+
 ### Batch Review Submission
 
 Submit multiple files for review in a single request.
@@ -845,6 +910,148 @@ curl -X GET http://localhost:8000/api/v1/review/batch/batch_7f6e5d4c3b2a/status 
 
 ---
 
+### Submit Review Feedback
+
+Submit developer feedback and accuracy ratings for a completed review.
+
+**Endpoint:** `POST /api/v1/review/{review_id}/feedback`
+
+**Request Headers:**
+```http
+Authorization: Bearer cvai_dev_key_123
+Content-Type: application/json
+```
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `review_id` | string | Unique review identifier |
+
+**Request Body:**
+```json
+{
+  "rating": 5,
+  "is_helpful": true,
+  "false_positives": 0,
+  "false_negatives": 0,
+  "comments": "Accurately flagged OWASP Top 10 vulnerabilities and suggested idiomatic fixes."
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "status": "success",
+  "message": "Feedback recorded. Thank you for improving Cerberus."
+}
+```
+
+---
+
+### Live Review WebSocket Stream
+
+Subscribe to real-time agent execution events and completion broadcasts over WebSockets.
+
+**Endpoint:** `ws://localhost:8000/api/v1/review/{review_id}/ws?token=cvai_dev_key_123`
+
+**Connection Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `review_id` | string | Yes | The ID of the review being tracked |
+| `token` | string | Yes (in query or header) | API key token (e.g. `cvai_dev_key_123`) |
+
+**Authentication:**
+Provide the token via query parameter (`?token=cvai_dev_key_123`) or via handshake header (`Authorization: Bearer cvai_dev_key_123`). Invalid or missing tokens result in closure with code `1008` (Policy Violation).
+
+**Example (JavaScript / Node.js):**
+```javascript
+const WebSocket = require('ws');
+
+const reviewId = 'rev_8f7e6d5c4b3a2918';
+const ws = new WebSocket(`ws://localhost:8000/api/v1/review/${reviewId}/ws?token=cvai_dev_key_123`);
+
+ws.on('open', () => {
+  console.log('Connected to Cerberus review stream');
+});
+
+ws.on('message', (data) => {
+  const event = JSON.parse(data);
+  console.log('Received event:', event);
+});
+```
+
+**Event Messages:**
+
+*On Connection:*
+```json
+{
+  "event": "connected",
+  "review_id": "rev_8f7e6d5c4b3a2918",
+  "message": "Subscribed to live agent updates."
+}
+```
+
+*On Review Completion:*
+```json
+{
+  "event": "review_completed",
+  "review_id": "rev_8f7e6d5c4b3a2918",
+  "overall_score": 88.5
+}
+```
+
+---
+
+### Repository Analytics
+
+Retrieve historical review performance metrics and quality trajectories for a repository.
+
+**Endpoint:** `GET /api/v1/analytics/repositories/{owner}/{repo}`
+
+**Request Headers:**
+```http
+Authorization: Bearer cvai_dev_key_123
+```
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `owner` | string | Repository owner or organization |
+| `repo` | string | Repository name |
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `from_date` | string | No | Optional starting timestamp filter (ISO 8601) |
+| `to_date` | string | No | Optional ending timestamp filter (ISO 8601) |
+
+**Example:**
+```bash
+curl -X GET "http://localhost:8000/api/v1/analytics/repositories/cerberus-org/core-service" \
+  -H "Authorization: Bearer cvai_dev_key_123"
+```
+
+**Response (200 OK):**
+```json
+{
+  "repository": "cerberus-org/core-service",
+  "metrics": {
+    "total_reviews": 128,
+    "avg_score": 88.5,
+    "vulnerabilities_prevented": 34,
+    "security_trend": "+18.2%",
+    "technical_debt_trajectory": "-12.5%",
+    "performance_optimizations": 42
+  }
+}
+```
+
+---
+
 ### List Available Agents
 
 Get information about available review agents and their capabilities.
@@ -853,10 +1060,10 @@ Get information about available review agents and their capabilities.
 
 **Request Headers:**
 ```http
-Authorization: Bearer cvai_your_api_key
+Authorization: Bearer cvai_dev_key_123
 ```
 
-**Example 1: List All Agents**
+**Example:**
 ```bash
 curl -X GET http://localhost:8000/api/v1/agents \
   -H "Authorization: Bearer cvai_dev_key_123"
@@ -864,211 +1071,102 @@ curl -X GET http://localhost:8000/api/v1/agents \
 
 **Response (200 OK):**
 ```json
-{
-  "agents": [
-    {
-      "id": "security",
-      "name": "Security Agent",
-      "version": "1.2.0",
-      "description": "Identifies security vulnerabilities and compliance issues",
-      "enabled": true,
-      "capabilities": [
-        "sql_injection_detection",
-        "xss_detection",
-        "secret_scanning",
-        "authentication_review",
-        "cryptography_analysis",
-        "dependency_vulnerabilities"
-      ],
-      "supported_languages": ["*"],
-      "average_execution_time_ms": 3500,
-      "config_options": {
-        "severity_levels": ["critical", "high", "medium", "low"],
-        "rule_sets": ["owasp_top_10", "cwe_top_25", "sans_top_25"],
-        "secret_patterns": "configurable"
-      }
-    },
-    {
-      "id": "performance",
-      "name": "Performance Agent",
-      "version": "1.1.0",
-      "description": "Detects performance bottlenecks and optimization opportunities",
-      "enabled": true,
-      "capabilities": [
-        "complexity_analysis",
-        "memory_leak_detection",
-        "database_query_optimization",
-        "caching_opportunities",
-        "algorithm_efficiency"
-      ],
-      "supported_languages": ["*"],
-      "average_execution_time_ms": 3200,
-      "config_options": {
-        "complexity_threshold": "O(n²) or worse",
-        "memory_threshold_mb": 100,
-        "query_analysis": true
-      }
-    },
-    {
-      "id": "quality",
-      "name": "Code Quality Agent",
-      "version": "1.3.0",
-      "description": "Reviews code maintainability, readability, and best practices",
-      "enabled": true,
-      "capabilities": [
-        "naming_conventions",
-        "code_structure",
-        "design_patterns",
-        "documentation_review",
-        "duplication_detection",
-        "solid_principles"
-      ],
-      "supported_languages": ["*"],
-      "average_execution_time_ms": 3800,
-      "config_options": {
-        "style_guide": "configurable",
-        "documentation_required": true,
-        "max_function_length": 50,
-        "max_complexity": 10
-      }
-    }
-  ],
-  "total_agents": 3,
-  "enabled_agents": 3
-}
-```
-
-**Example 2: Get Specific Agent Details**
-```bash
-curl -X GET http://localhost:8000/api/v1/agents/security \
-  -H "Authorization: Bearer cvai_dev_key_123"
-```
-
-**Response (200 OK):**
-```json
-{
-  "id": "security",
-  "name": "Security Agent",
-  "version": "1.2.0",
-  "description": "Identifies security vulnerabilities and compliance issues",
-  "enabled": true,
-  "status": "healthy",
-  "last_health_check": "2026-09-21T11:05:00Z",
-  "capabilities": [
-    "sql_injection_detection",
-    "xss_detection",
-    "secret_scanning",
-    "authentication_review",
-    "cryptography_analysis",
-    "dependency_vulnerabilities"
-  ],
-  "statistics": {
-    "total_reviews": 15432,
-    "total_findings": 8921,
-    "average_execution_time_ms": 3480,
-    "success_rate": 99.8,
-    "last_30_days": {
-      "reviews": 1247,
-      "findings": 623,
-      "critical_findings": 34,
-      "high_findings": 189
-    }
+[
+  {
+    "id": "security",
+    "name": "security",
+    "version": "1.2.0",
+    "purpose": "Identify security vulnerabilities, secrets leakage, injection flaws, and CVSS risks",
+    "capabilities": [
+      "SQL Injection Detection (CWE-89)",
+      "Command Injection (CWE-78)",
+      "Hardcoded Credentials & API Secrets (CWE-798)",
+      "Weak Cryptographic Algorithms (CWE-328)",
+      "Insecure Object Deserialization (CWE-502)",
+      "CVSS 3.1 Severity Scoring",
+      "OWASP Top 10 Threat Analysis",
+      "Exploitability Probability Estimation"
+    ],
+    "status": "active"
   },
-  "configuration": {
-    "llm_provider": "openai",
-    "llm_model": "gpt-4-turbo-preview",
-    "max_tokens": 2000,
-    "temperature": 0.2,
-    "timeout_seconds": 30
+  {
+    "id": "performance",
+    "name": "performance",
+    "version": "1.1.0",
+    "purpose": "Detect algorithmic bottlenecks, O(n²) loops, N+1 queries, and memory inefficiencies",
+    "capabilities": [
+      "Algorithmic Complexity Analysis (Big-O)",
+      "Nested Iteration Detection (O(n²))",
+      "Database N+1 Query Antipatterns",
+      "String Concatenation Memory Leaks",
+      "Caching Opportunity Identification",
+      "Estimated Latency Improvement Calculations"
+    ],
+    "status": "active"
   },
-  "_links": {
-    "self": "/api/v1/agents/security",
-    "health": "/api/v1/agents/security/health",
-    "config": "/api/v1/agents/security/config"
+  {
+    "id": "quality",
+    "name": "quality",
+    "version": "1.1.0",
+    "purpose": "Evaluate readability, maintainability, docstring coverage, and clean coding standards",
+    "capabilities": [
+      "Docstring Completeness & API Documentation",
+      "Cognitive & Cyclomatic Complexity",
+      "Long Method & Monolith Detection",
+      "Dangerous Bare Except Clauses",
+      "Wildcard Import Pollution",
+      "Refactoring & Clean Code Suggestions"
+    ],
+    "status": "active"
+  },
+  {
+    "id": "architecture",
+    "name": "architecture",
+    "version": "1.0.0",
+    "purpose": "Validate system architecture, module coupling, and structural anti-patterns",
+    "capabilities": [
+      "Deep Coupling & Relative Import Detection",
+      "Cyclic Dependency Risk Analysis",
+      "Single Responsibility Principle (SRP) Verification",
+      "Architectural Modularity Scoring"
+    ],
+    "status": "active"
+  },
+  {
+    "id": "compliance",
+    "name": "compliance",
+    "version": "2.0.0",
+    "purpose": "Audit code against HIPAA, GDPR, SOC 2, PCI-DSS, and CCPA regulatory mandates",
+    "capabilities": [
+      "HIPAA Security Rule (45 CFR §164.312 - ePHI, In-Transit TLS, Audit Logging)",
+      "GDPR Data Protection (Articles 5, 6, 17, 25, 32 - Minimization, Consent, Erasure)",
+      "SOC 2 Trust Services Criteria (CC6.1, CC6.6, CC7.1, CC7.2 - Secrets, RBAC, Masking)",
+      "PCI-DSS v4.0 (Req 3.2, 3.4, 3.5 - PAN Luhn Validation, CVV Storage Prohibition)",
+      "CCPA / CPRA (§1798.105, §1798.120 - Do-Not-Sell Opt-Out, DSAR Verification)",
+      "Automated Regulatory Remediation Timelines & SLA Generation",
+      "Multi-Framework Individual Compliance Scoring Matrix"
+    ],
+    "status": "active"
   }
-}
+]
 ```
-
-**Status Codes:**
-
-| Code | Meaning |
-|------|---------|
-| 200 | OK |
-| 401 | Unauthorized |
-| 404 | Not Found - Agent doesn't exist |
 
 ---
 
-### Update Configuration
+### System Configuration
 
-Update system or agent-specific configuration.
+Retrieve or update active runtime configuration parameters.
 
-**Endpoint:** `POST /api/v1/config`
+#### Get Current Configuration
+
+**Endpoint:** `GET /api/v1/config`
 
 **Request Headers:**
 ```http
-Authorization: Bearer cvai_your_api_key
-Content-Type: application/json
+Authorization: Bearer cvai_dev_key_123
 ```
 
-**Request Body:**
-```json
-{
-  "scope": "user",
-  "config": {
-    "default_agents": ["security", "quality"],
-    "severity_threshold": "medium",
-    "agents": {
-      "security": {
-        "enabled": true,
-        "rule_sets": ["owasp_top_10"],
-        "secret_scanning": {
-          "enabled": true,
-          "custom_patterns": ["API_KEY_\\w+"]
-        }
-      }
-    },
-    "llm": {
-      "provider": "openai",
-      "model": "gpt-4-turbo-preview",
-      "fallback_provider": "anthropic"
-    }
-  }
-}
-```
-
-**Example 1: Update User Configuration**
-```bash
-curl -X POST http://localhost:8000/api/v1/config \
-  -H "Authorization: Bearer cvai_dev_key_123" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "scope": "user",
-    "config": {
-      "default_agents": ["security"],
-      "severity_threshold": "high",
-      "blocking_mode": true
-    }
-  }'
-```
-
-**Response (200 OK):**
-```json
-{
-  "status": "updated",
-  "scope": "user",
-  "updated_at": "2026-09-21T11:10:00Z",
-  "config": {
-    "default_agents": ["security"],
-    "severity_threshold": "high",
-    "blocking_mode": true
-  },
-  "cache_invalidated": true,
-  "message": "Configuration updated successfully. Changes will take effect immediately."
-}
-```
-
-**Example 2: Get Current Configuration**
+**Example:**
 ```bash
 curl -X GET http://localhost:8000/api/v1/config \
   -H "Authorization: Bearer cvai_dev_key_123"
@@ -1077,58 +1175,75 @@ curl -X GET http://localhost:8000/api/v1/config \
 **Response (200 OK):**
 ```json
 {
-  "scope": "user",
-  "config": {
-    "default_agents": ["security"],
-    "severity_threshold": "high",
-    "blocking_mode": true,
-    "agents": {
-      "security": {
-        "enabled": true,
-        "llm_provider": "openai",
-        "llm_model": "gpt-4-turbo-preview"
-      },
-      "performance": {
-        "enabled": true,
-        "llm_provider": "openai",
-        "llm_model": "gpt-3.5-turbo"
-      },
-      "quality": {
-        "enabled": true,
-        "llm_provider": "openai",
-        "llm_model": "gpt-3.5-turbo"
-      }
-    },
-    "cache_ttl_seconds": 604800,
-    "max_code_size_bytes": 102400
-  },
-  "effective_config": {
-    "source": "user",
-    "inherited_from": ["defaults"]
-  }
+  "environment": "development",
+  "llm_provider": "heuristic",
+  "enabled_agents": [
+    "security",
+    "performance",
+    "quality",
+    "architecture",
+    "compliance"
+  ],
+  "cache_enabled": true,
+  "cache_ttl_seconds": 86400,
+  "severity_threshold": "medium",
+  "blocking_mode": false,
+  "rate_limit_per_hour": 100
 }
 ```
 
-**Status Codes:**
+#### Update Configuration
 
-| Code | Meaning |
-|------|---------|
-| 200 | OK - Configuration updated |
-| 400 | Bad Request - Invalid configuration |
-| 401 | Unauthorized |
-| 403 | Forbidden - Cannot modify system config |
+**Endpoint:** `PUT /api/v1/config`
+
+**Request Headers:**
+```http
+Authorization: Bearer cvai_dev_key_123
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "enabled_agents": "security,performance,quality,architecture,compliance",
+  "severity_threshold": "high",
+  "blocking_mode": true
+}
+```
+
+**Example:**
+```bash
+curl -X PUT http://localhost:8000/api/v1/config \
+  -H "Authorization: Bearer cvai_dev_key_123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled_agents": "security,performance,quality",
+    "severity_threshold": "high",
+    "blocking_mode": true
+  }'
+```
+
+**Response (200 OK):**
+```json
+{
+  "status": "success",
+  "message": "Configuration updated successfully"
+}
+```
 
 ---
 
-### Health Check
+### Health Check & Readiness Probe
 
-Check the health status of the CodeVault AI service and its dependencies.
+Inspect service liveness, uptime, database connectivity, cache status, and routing readiness.
 
-**Endpoint:** `GET /api/v1/health`
+#### Liveness Health Check
+
+**Endpoint:** `GET /api/v1/health` (also accessible at `GET /health`)
 
 **No Authentication Required**
 
-**Example 1: Basic Health Check**
+**Example:**
 ```bash
 curl -X GET http://localhost:8000/api/v1/health
 ```
@@ -1138,140 +1253,37 @@ curl -X GET http://localhost:8000/api/v1/health
 {
   "status": "healthy",
   "version": "0.1.0",
-  "timestamp": "2026-09-21T11:15:00Z",
-  "uptime_seconds": 86400,
-  "components": {
-    "api": {
-      "status": "healthy",
-      "latency_ms": 2
-    },
-    "database": {
-      "status": "healthy",
-      "type": "postgresql",
-      "latency_ms": 5,
-      "connection_pool": {
-        "active": 3,
-        "idle": 7,
-        "max": 10
-      }
-    },
-    "cache": {
-      "status": "healthy",
-      "type": "redis",
-      "latency_ms": 1,
-      "memory_used_mb": 45,
-      "memory_max_mb": 512,
-      "hit_rate": 0.73
-    },
-    "llm_providers": {
-      "openai": {
-        "status": "healthy",
-        "latency_ms": 120,
-        "last_check": "2026-09-21T11:14:00Z"
-      },
-      "anthropic": {
-        "status": "healthy",
-        "latency_ms": 150,
-        "last_check": "2026-09-21T11:14:00Z"
-      },
-      "ollama": {
-        "status": "unavailable",
-        "error": "Connection refused",
-        "last_check": "2026-09-21T11:14:00Z"
-      }
-    },
-    "agents": {
-      "security": {
-        "status": "healthy",
-        "version": "1.2.0"
-      },
-      "performance": {
-        "status": "healthy",
-        "version": "1.1.0"
-      },
-      "quality": {
-        "status": "healthy",
-        "version": "1.3.0"
-      }
-    }
-  }
+  "timestamp": "2026-10-10T12:00:00.000000+00:00",
+  "database": "connected",
+  "cache": "redis",
+  "active_agents": [
+    "security",
+    "performance",
+    "quality",
+    "architecture",
+    "compliance"
+  ],
+  "uptime_seconds": 128.45
 }
 ```
 
-**Example 2: Detailed Health Check**
+#### Readiness Probe
+
+**Endpoint:** `GET /api/v1/ready` (also accessible at `GET /ready`)
+
+**No Authentication Required**
+
+**Example:**
 ```bash
-curl -X GET "http://localhost:8000/api/v1/health?detailed=true"
+curl -X GET http://localhost:8000/api/v1/ready
 ```
 
-**Response includes additional metrics:**
+**Response (200 OK):**
 ```json
 {
-  "status": "healthy",
-  "version": "0.1.0",
-  "timestamp": "2026-09-21T11:15:00Z",
-  "uptime_seconds": 86400,
-  "components": {
-    "... (same as basic) ..."
-  },
-  "metrics": {
-    "requests_total": 15432,
-    "requests_per_second": 0.18,
-    "average_response_time_ms": 245,
-    "error_rate": 0.002,
-    "cache_hit_rate": 0.73,
-    "active_reviews": 3
-  },
-  "system": {
-    "cpu_usage_percent": 12.5,
-    "memory_usage_mb": 256,
-    "memory_total_mb": 2048,
-    "disk_usage_percent": 45
-  }
+  "status": "ready"
 }
 ```
-
-**Example 3: Unhealthy Service**
-```bash
-curl -X GET http://localhost:8000/api/v1/health
-```
-
-**Response (503 Service Unavailable):**
-```json
-{
-  "status": "unhealthy",
-  "version": "0.1.0",
-  "timestamp": "2026-09-21T11:20:00Z",
-  "components": {
-    "api": {
-      "status": "healthy"
-    },
-    "database": {
-      "status": "unhealthy",
-      "error": "Connection timeout",
-      "last_successful_check": "2026-09-21T11:18:00Z"
-    },
-    "cache": {
-      "status": "degraded",
-      "warning": "High memory usage (95%)"
-    },
-    "llm_providers": {
-      "openai": {
-        "status": "unhealthy",
-        "error": "Rate limit exceeded",
-        "retry_after": 3600
-      }
-    }
-  },
-  "message": "Service is experiencing issues. Some features may be unavailable."
-}
-```
-
-**Status Codes:**
-
-| Code | Meaning |
-|------|---------|
-| 200 | OK - Service is healthy |
-| 503 | Service Unavailable - Service is unhealthy |
 
 ---
 
@@ -1321,7 +1333,7 @@ X-CodeVault-Event: review.completed
     "duration_ms": 12450
   },
   "_links": {
-    "review": "https://api.codevault.ai/api/v1/review/rev_8f7e6d5c4b3a2918"
+    "review": "http://localhost:8000/api/v1/review/rev_8f7e6d5c4b3a2918"
   }
 }
 ```
@@ -1513,7 +1525,7 @@ jobs:
           # Review each file
           while read file; do
             if [ -f "$file" ]; then
-              curl -X POST http://api.codevault.ai/api/v1/review \
+              curl -X POST http://localhost:8000/api/v1/review \
                 -H "Authorization: Bearer $CODEVAULT_API_KEY" \
                 -H "Content-Type: application/json" \
                 -d @- << EOF

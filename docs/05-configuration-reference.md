@@ -156,6 +156,52 @@ CACHE_TTL_SECONDS=604800
 
 ## LLM Backend Configuration
 
+### Heuristic Engine (Default, Zero-Config)
+
+```yaml
+llm:
+  provider: "heuristic"
+```
+
+The heuristic engine is the default provider. It operates locally with zero credentials, using deterministic AST visitors and pattern matching. It is instant, reliable, and completely offline.
+
+### IBM watsonx Configuration (Enterprise)
+
+```yaml
+llm:
+  provider: "watsonx"
+  
+  watsonx:
+    api_key: "${WATSONX_API_KEY}"            # IBM Cloud IAM API key
+    project_id: "${WATSONX_PROJECT_ID}"      # watsonx Studio project ID
+    url: "https://us-south.ml.cloud.ibm.com" # Generation endpoint base URL
+    model_id: "ibm/granite-3-8b-instruct"    # Model identifier
+    
+    # Request parameters
+    parameters:
+      decoding_method: "greedy"
+      max_new_tokens: 1024
+      temperature: 0.1
+      repetition_penalty: 1.05
+```
+
+**Model Options:**
+- `ibm/granite-3-8b-instruct` - Default enterprise code instruction model
+- `ibm/granite-3-2b-instruct` - Lightweight, low-latency instruction model
+- `ibm/granite-20b-code-instruct` - Deep reasoning & code generation model
+
+**Authentication:**
+Cerberus performs automated IAM token exchange against `https://iam.cloud.ibm.com/identity/token`, caches bearer tokens, and refreshes them within 60 seconds of expiration.
+
+**Environment Variables:**
+```bash
+LLM_PROVIDER=watsonx
+WATSONX_API_KEY=your-ibm-cloud-api-key
+WATSONX_PROJECT_ID=your-project-id
+WATSONX_URL=https://us-south.ml.cloud.ibm.com
+WATSONX_MODEL_ID=ibm/granite-3-8b-instruct
+```
+
 ### OpenAI Configuration
 
 ```yaml
@@ -296,10 +342,10 @@ llm:
 ```yaml
 agents:
   # Which agents to enable
-  enabled: ["security", "performance", "quality"]
+  enabled: ["security", "performance", "quality", "architecture", "compliance"]
   
   # Default agents for reviews (if not specified)
-  default: ["security", "performance", "quality"]
+  default: ["security", "performance", "quality", "architecture", "compliance"]
   
   # Execution mode
   execution:
@@ -841,33 +887,40 @@ logging:
 
 ## Environment Variables Reference
 
-Complete list of environment variables:
+Complete reference of supported environment variables loaded from the environment or `.env` file:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CODEVAULT_HOST` | `0.0.0.0` | Server listen address |
-| `CODEVAULT_PORT` | `8000` | Server port |
-| `CODEVAULT_WORKERS` | `4` | Number of worker processes |
-| `DATABASE_URL` | - | Database connection string |
-| `REDIS_URL` | - | Redis connection string |
-| `LLM_PROVIDER` | `openai` | LLM provider (openai, anthropic, ollama, azure_openai) |
+| `HOST` | `0.0.0.0` | Server listen address |
+| `PORT` | `8000` | Server HTTP port |
+| `ENVIRONMENT` | `development` | Deployment environment (`development`, `staging`, `production`) |
+| `LOG_LEVEL` | `INFO` | Application log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `SECRET_KEY` | - | Application cryptographic secret key (min 32 chars in production) |
+| `API_KEY_PREFIX` | `cvai_` | Standard prefix for generated API keys |
+| `DEFAULT_DEV_API_KEY` | `cvai_dev_key_123` | Pre-seeded API key for local development and testing |
+| `RATE_LIMIT_PER_HOUR` | `100` | Request rate limit per hour per API key |
+| `RATE_LIMIT_MAX_TRACKED` | `10000` | Maximum number of tracking entries in rate limiter cache |
+| `CORS_ORIGINS` | `http://localhost:3000,...` | Comma-separated list of permitted CORS origins |
+| `DATABASE_URL` | `sqlite+aiosqlite:///./cerberus.db` | SQLAlchemy async database connection URI |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis caching connection URI |
+| `CACHE_ENABLED` | `true` | Enable caching of review results and heuristic computations |
+| `CACHE_TTL_SECONDS` | `604800` | Cache retention TTL in seconds (default 7 days) |
+| `CACHE_MAX_ITEMS` | `1000` | Maximum entries in in-memory LRU review cache |
+| `LLM_PROVIDER` | `heuristic` | Active review backend (`heuristic`, `watsonx`, `openai`, `ollama`) |
+| `WATSONX_API_KEY` | - | IBM Cloud IAM API Key for watsonx access |
+| `WATSONX_PROJECT_ID` | - | IBM watsonx Studio project identifier |
+| `WATSONX_URL` | `https://us-south.ml.cloud.ibm.com` | watsonx text generation endpoint URL |
+| `WATSONX_MODEL_ID` | `ibm/granite-3-8b-instruct` | IBM Granite foundation model identifier |
 | `OPENAI_API_KEY` | - | OpenAI API key |
-| `OPENAI_MODEL` | `gpt-4-turbo-preview` | OpenAI model |
-| `ANTHROPIC_API_KEY` | - | Anthropic API key |
-| `ANTHROPIC_MODEL` | `claude-3-sonnet-20240229` | Anthropic model |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama base URL |
-| `OLLAMA_MODEL` | `codellama` | Ollama model |
-| `AZURE_OPENAI_API_KEY` | - | Azure OpenAI key |
-| `AZURE_OPENAI_ENDPOINT` | - | Azure OpenAI endpoint |
-| `AZURE_OPENAI_DEPLOYMENT` | - | Azure deployment name |
-| `CACHE_ENABLED` | `true` | Enable caching |
-| `CACHE_TTL_SECONDS` | `604800` | Cache TTL (7 days) |
-| `ENABLED_AGENTS` | `security,performance,quality` | Enabled agents |
-| `LOG_LEVEL` | `INFO` | Logging level |
-| `SECRET_KEY` | - | Application secret key |
-| `API_KEY_PREFIX` | `cvai_` | API key prefix |
-| `RATE_LIMIT_PER_HOUR` | `100` | Rate limit per API key |
-| `PROMETHEUS_ENABLED` | `true` | Enable Prometheus metrics |
+| `OPENAI_MODEL` | `gpt-4o` | OpenAI model identifier |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Base URL of local Ollama instance |
+| `OLLAMA_MODEL` | `codellama` | Ollama model identifier |
+| `ENABLED_AGENTS` | `security,performance,quality,architecture,compliance` | Comma-separated list of active review agents |
+| `SEVERITY_THRESHOLD` | `medium` | Minimum severity triggering review blocking or warnings |
+| `BLOCKING_MODE` | `false` | Whether critical findings should flag review as `should_block` |
+| `MAX_CONCURRENT_BATCH_REVIEWS` | `5` | Maximum concurrent reviews during batch processing |
+| `MAX_BATCH_SIZE` | `100` | Maximum number of files permitted in a single batch request |
+| `PROMETHEUS_ENABLED` | `true` | Enable Prometheus telemetry endpoint (`/metrics`) |
 
 ---
 

@@ -51,13 +51,13 @@ scrape_configs:
 ```json
 {
   "dashboard": {
-    "title": "CodeVault AI Overview",
+    "title": "Cerberus Multi-Agent AI Overview",
     "panels": [
       {
         "title": "Review Request Rate",
         "targets": [
           {
-            "expr": "rate(codevault_review_total[5m])"
+            "expr": "rate(cerberus_review_requests_total[5m])"
           }
         ]
       },
@@ -65,7 +65,7 @@ scrape_configs:
         "title": "Average Review Duration",
         "targets": [
           {
-            "expr": "rate(codevault_review_duration_seconds_sum[5m]) / rate(codevault_review_duration_seconds_count[5m])"
+            "expr": "rate(cerberus_review_duration_seconds_sum[5m]) / rate(cerberus_review_duration_seconds_count[5m])"
           }
         ]
       },
@@ -73,15 +73,15 @@ scrape_configs:
         "title": "Cache Hit Rate",
         "targets": [
           {
-            "expr": "codevault_cache_hit_rate"
+            "expr": "rate(cerberus_cache_hits_total[5m]) / (rate(cerberus_cache_hits_total[5m]) + rate(cerberus_cache_misses_total[5m]))"
           }
         ]
       },
       {
-        "title": "Error Rate",
+        "title": "Findings Rate by Severity",
         "targets": [
           {
-            "expr": "rate(codevault_errors_total[5m])"
+            "expr": "sum by (severity) (rate(cerberus_findings_detected_total[5m]))"
           }
         ]
       }
@@ -96,19 +96,16 @@ scrape_configs:
 
 ### Application Metrics
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `codevault_review_total` | Counter | Total reviews processed |
-| `codevault_review_duration_seconds` | Histogram | Review processing time |
-| `codevault_review_in_progress` | Gauge | Current active reviews |
-| `codevault_agent_execution_seconds` | Histogram | Per-agent execution time |
-| `codevault_llm_tokens_total` | Counter | Total LLM tokens used |
-| `codevault_llm_cost_usd_total` | Counter | Estimated LLM costs |
-| `codevault_cache_hit_total` | Counter | Cache hits |
-| `codevault_cache_miss_total` | Counter | Cache misses |
-| `codevault_cache_hit_rate` | Gauge | Current cache hit rate |
-| `codevault_errors_total` | Counter | Total errors by type |
-| `codevault_api_requests_total` | Counter | API requests by endpoint |
+Cerberus exposes production metrics generated via `cerberus/core/telemetry.py`:
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `cerberus_review_requests_total` | Counter | `status`, `language` | Total number of code review requests processed |
+| `cerberus_review_duration_seconds` | Histogram | None | Total time spent analyzing code reviews (buckets: 0.1 to 30.0s) |
+| `cerberus_agent_execution_seconds` | Histogram | `agent_name` | Individual execution duration per agent |
+| `cerberus_findings_detected_total` | Counter | `agent_name`, `severity` | Count of findings discovered by agents |
+| `cerberus_cache_hits_total` | Counter | None | Number of review requests served directly from cache |
+| `cerberus_cache_misses_total` | Counter | None | Number of review requests requiring fresh agent analysis |
 
 ### System Metrics
 
@@ -118,38 +115,37 @@ scrape_configs:
 | `process_memory_bytes` | Memory usage |
 | `database_connections_active` | Active DB connections |
 | `redis_connections_active` | Active Redis connections |
-| `llm_provider_latency_seconds` | LLM provider response time |
 
 ### Example Queries
 
-**Reviews per minute:**
+**Review requests per minute:**
 ```promql
-rate(codevault_review_total[1m]) * 60
+rate(cerberus_review_requests_total[1m]) * 60
 ```
 
 **Average review duration (last hour):**
 ```promql
-rate(codevault_review_duration_seconds_sum[1h]) / rate(codevault_review_duration_seconds_count[1h])
+rate(cerberus_review_duration_seconds_sum[1h]) / rate(cerberus_review_duration_seconds_count[1h])
+```
+
+**Average per-agent execution time:**
+```promql
+rate(cerberus_agent_execution_seconds_sum[5m]) / rate(cerberus_agent_execution_seconds_count[5m])
 ```
 
 **Cache hit rate percentage:**
 ```promql
-(codevault_cache_hit_total / (codevault_cache_hit_total + codevault_cache_miss_total)) * 100
-```
-
-**Error rate per minute:**
-```promql
-rate(codevault_errors_total[1m]) * 60
+(rate(cerberus_cache_hits_total[5m]) / (rate(cerberus_cache_hits_total[5m]) + rate(cerberus_cache_misses_total[5m]))) * 100
 ```
 
 **P95 review latency:**
 ```promql
-histogram_quantile(0.95, rate(codevault_review_duration_seconds_bucket[5m]))
+histogram_quantile(0.95, rate(cerberus_review_duration_seconds_bucket[5m]))
 ```
 
-**Token usage per hour:**
+**Findings detected per minute by severity:**
 ```promql
-rate(codevault_llm_tokens_total[1h]) * 3600
+sum by (severity) (rate(cerberus_findings_detected_total[1m])) * 60
 ```
 
 ---
@@ -329,7 +325,7 @@ fi
 **Diagnosis:**
 ```bash
 # Check metrics
-curl -s http://localhost:9090/api/v1/query?query=rate\(codevault_review_duration_seconds_sum\[5m\]\)/rate\(codevault_review_duration_seconds_count\[5m\]\)
+curl -s "http://localhost:9090/api/v1/query?query=rate(cerberus_review_duration_seconds_sum[5m])/rate(cerberus_review_duration_seconds_count[5m])"
 
 # Check LLM provider latency
 curl -s http://localhost:8000/api/v1/health?detailed=true | jq '.components.llm_providers'
@@ -422,13 +418,13 @@ redis:
 ### 5. High Error Rate
 
 **Symptoms:**
-- `codevault_errors_total` increasing
+- `cerberus_review_requests_total{status="failed"}` increasing
 - Failed reviews
 
 **Diagnosis:**
 ```bash
-# Check error types
-curl -s http://localhost:9090/api/v1/query?query=codevault_errors_total | jq
+# Check failed review counts
+curl -s "http://localhost:9090/api/v1/query?query=cerberus_review_requests_total{status='failed'}" | jq
 
 # Check logs for errors
 docker-compose logs api | grep ERROR | tail -50
@@ -541,13 +537,13 @@ echo "Errors in last 24h: $ERROR_COUNT"
 
 # Check metrics
 echo "Reviews last 24h:"
-curl -s http://localhost:9090/api/v1/query?query=increase\(codevault_review_total\[24h\]\) | jq '.data.result[0].value[1]'
+curl -s "http://localhost:9090/api/v1/query?query=increase(cerberus_review_requests_total[24h])" | jq '.data.result[0].value[1]'
 ```
 
 **2. Review Metrics:**
 ```bash
-# Check key metrics
-curl -s http://localhost:9090/api/v1/query?query=codevault_cache_hit_rate | jq '.data.result[0].value[1]'
+# Check cache hit rate
+curl -s "http://localhost:9090/api/v1/query?query=rate(cerberus_cache_hits_total[5m])/(rate(cerberus_cache_hits_total[5m])+rate(cerberus_cache_misses_total[5m]))" | jq '.data.result[0].value[1]'
 ```
 
 ### Weekly Tasks
@@ -686,20 +682,20 @@ nginx:
 **alerts.yml:**
 ```yaml
 groups:
-  - name: codevault
+  - name: cerberus
     interval: 30s
     rules:
-      - alert: HighErrorRate
-        expr: rate(codevault_errors_total[5m]) > 0.1
+      - alert: HighReviewFailureRate
+        expr: rate(cerberus_review_requests_total{status="failed"}[5m]) > 0.1
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "High error rate detected"
-          description: "Error rate is {{ $value }} errors/sec"
+          summary: "High review failure rate detected"
+          description: "Review failure rate is {{ $value }} errors/sec"
       
       - alert: SlowReviews
-        expr: rate(codevault_review_duration_seconds_sum[5m]) / rate(codevault_review_duration_seconds_count[5m]) > 30
+        expr: rate(cerberus_review_duration_seconds_sum[5m]) / rate(cerberus_review_duration_seconds_count[5m]) > 30
         for: 10m
         labels:
           severity: warning
@@ -708,7 +704,7 @@ groups:
           description: "Average review time is {{ $value }}s"
       
       - alert: LowCacheHitRate
-        expr: codevault_cache_hit_rate < 0.5
+        expr: rate(cerberus_cache_hits_total[15m]) / (rate(cerberus_cache_hits_total[15m]) + rate(cerberus_cache_misses_total[15m])) < 0.5
         for: 15m
         labels:
           severity: warning

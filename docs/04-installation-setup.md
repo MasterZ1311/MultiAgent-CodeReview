@@ -31,25 +31,27 @@
 
 ### LLM Provider Requirements
 
-Choose at least one:
+Cerberus supports multiple LLM providers as well as a zero-credential heuristic fallback:
 
-**Option 1: OpenAI**
-- API key from [platform.openai.com](https://platform.openai.com)
-- Credit balance or payment method
-- Cost: ~$0.03 per review (GPT-4-turbo)
+**Option 1: Heuristic Engine (Default, Zero-Config)**
+- **No external API key or internet access required**
+- 100% deterministic, instant execution, zero cloud cost
+- Uses AST parsing, regex vulnerability patterns, and heuristic analyzers
+- `LLM_PROVIDER=heuristic` (the built-in default)
 
-**Option 2: Anthropic Claude**
-- API key from [console.anthropic.com](https://console.anthropic.com)
-- Cost: ~$0.025 per review (Claude 3 Sonnet)
+**Option 2: IBM watsonx (Recommended for Enterprise)**
+- Powered by IBM Granite models (default: `ibm/granite-3-8b-instruct`)
+- Automated IBM Cloud IAM OAuth token exchange
+- Requires `WATSONX_API_KEY`, `WATSONX_PROJECT_ID`, and `WATSONX_URL`
+- Refer to [`WATSONX_INTEGRATION.md`](../WATSONX_INTEGRATION.md) for full setup instructions
 
-**Option 3: Ollama (Local, Free)**
-- Ollama installed locally
-- ~8GB RAM free for models
-- Cost: $0 (local execution)
+**Option 3: OpenAI**
+- Requires API key from [platform.openai.com](https://platform.openai.com)
+- Set `LLM_PROVIDER=openai` and `OPENAI_API_KEY=sk-...`
 
-**Option 4: Azure OpenAI**
-- Azure subscription with OpenAI enabled
-- Deployment created in Azure Portal
+**Option 4: Ollama (Local LLM)**
+- Free local execution using Ollama
+- Set `LLM_PROVIDER=ollama` and `OLLAMA_BASE_URL=http://localhost:11434`
 
 ### System Requirements
 
@@ -68,72 +70,83 @@ Choose at least one:
 
 ## Quick Start (5 Minutes)
 
-Get CodeVault AI running locally in under 5 minutes.
+Get Cerberus running locally in under 5 minutes.
 
 ### Step 1: Clone and Configure
 
 ```bash
 # Clone repository
-git clone https://github.com/codevault-ai/codevault.git
-cd codevault
+git clone https://github.com/codevault-ai/MultiAgent-CodeReview.git
+cd MultiAgent-CodeReview
 
 # Copy example environment file
 cp .env.example .env
 
-# Edit .env and add your API key
-# For OpenAI:
-echo "OPENAI_API_KEY=sk-your-api-key-here" >> .env
-
-# For Ollama (local):
-echo "LLM_PROVIDER=ollama" >> .env
-echo "OLLAMA_BASE_URL=http://localhost:11434" >> .env
+# By default, LLM_PROVIDER=heuristic works out of the box with zero external configuration!
+# To use IBM watsonx, add:
+# echo "LLM_PROVIDER=watsonx" >> .env
+# echo "WATSONX_API_KEY=your-ibm-cloud-key" >> .env
+# echo "WATSONX_PROJECT_ID=your-project-id" >> .env
 ```
 
 ### Step 2: Start Services
 
+**Option A: Running with Docker Compose**
 ```bash
-# Start all services
+# Start all containerized services
 docker-compose up -d
 
-# Check status
+# Check container status
 docker-compose ps
 ```
 
-**Expected Output:**
+**Expected Container Output:**
 ```
 NAME                STATUS              PORTS
-codevault-api       Up 30 seconds       0.0.0.0:8000->8000/tcp
-codevault-redis     Up 30 seconds       6379/tcp
-codevault-db        Up 30 seconds       5432/tcp
-prometheus          Up 30 seconds       9090/tcp
-grafana             Up 30 seconds       3000/tcp
+cerberus-api        Up 30 seconds       0.0.0.0:8000->8000/tcp
+cerberus-redis      Up 30 seconds       6379/tcp
+cerberus-postgres   Up 30 seconds       5432/tcp
+```
+
+**Option B: Running Locally with Python**
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Start API server directly via the Cerberus CLI
+python -m cerberus.cli serve --host 0.0.0.0 --port 8000
 ```
 
 ### Step 3: Verify Installation
 
 ```bash
-# Health check
+# Health check (no authentication required)
 curl http://localhost:8000/api/v1/health
 
-# Should return: {"status": "healthy", ...}
+# Response:
+# {"status":"healthy","version":"0.1.0","database":"connected","cache":"in_memory_lru","active_agents":["security","performance","quality","architecture","compliance"],"uptime_seconds":1.2}
 ```
 
-### Step 4: Create API Key
+### Step 4: Authentication & API Keys
 
+In development mode (`ENVIRONMENT=development`), the default API key `cvai_dev_key_123` is automatically pre-seeded.
+
+You can also create a new API key at any time using the CLI:
 ```bash
-# Generate your first API key
-docker-compose exec api python -m codevault.cli create-api-key --name "my-dev-key"
+python -m cerberus.cli create-api-key --name "my-dev-key"
 
-# Save the output - you'll need this key!
-# Output: cvai_1234567890abcdefghijklmnop
+# Output:
+# API Key created successfully!
+# Key: cvai_1234567890abcdefghijklmnop
+# Name: my-dev-key
 ```
 
 ### Step 5: Run First Review
 
 ```bash
-# Test review
+# Test review with pre-seeded dev key
 curl -X POST http://localhost:8000/api/v1/review \
-  -H "Authorization: Bearer cvai_YOUR_API_KEY" \
+  -H "Authorization: Bearer cvai_dev_key_123" \
   -H "Content-Type: application/json" \
   -d '{
     "code": "def hello():\n    print(\"Hello, World!\")",
@@ -141,7 +154,7 @@ curl -X POST http://localhost:8000/api/v1/review \
   }'
 ```
 
-**Success!** You now have CodeVault AI running locally. 🎉
+**Success!** You now have Cerberus running locally. 🎉
 
 ---
 
@@ -156,92 +169,66 @@ version: '3.8'
 
 services:
   api:
-    image: codevault/api:latest
-    container_name: codevault-api
+    build: .
+    container_name: cerberus-api
     restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://codevault:password@db:5432/codevault
+      - HOST=0.0.0.0
+      - PORT=8000
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+asyncpg://codevault:${DB_PASSWORD:-dev_password}@db:5432/codevault_db
       - REDIS_URL=redis://redis:6379/0
-      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CACHE_ENABLED=true
+      - LLM_PROVIDER=${LLM_PROVIDER:-heuristic}
+      - WATSONX_API_KEY=${WATSONX_API_KEY:-}
+      - WATSONX_PROJECT_ID=${WATSONX_PROJECT_ID:-}
+      - WATSONX_URL=${WATSONX_URL:-https://us-south.ml.cloud.ibm.com}
+      - WATSONX_MODEL_ID=${WATSONX_MODEL_ID:-ibm/granite-3-8b-instruct}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - ENABLED_AGENTS=security,performance,quality,architecture,compliance
+      - SECRET_KEY=${SECRET_KEY:-cerberus_production_secret_key_change_me_now_1234}
     depends_on:
       - db
       - redis
-    volumes:
-      - ./config:/app/config
-      - ./logs:/app/logs
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    networks:
+      - cerberus-network
 
   db:
     image: postgres:15-alpine
-    container_name: codevault-db
+    container_name: cerberus-postgres
     restart: unless-stopped
     environment:
-      - POSTGRES_DB=codevault
-      - POSTGRES_USER=codevault
-      - POSTGRES_PASSWORD=password
+      POSTGRES_USER: codevault
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-dev_password}
+      POSTGRES_DB: codevault_db
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U codevault"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    networks:
+      - cerberus-network
 
   redis:
     image: redis:7-alpine
-    container_name: codevault-redis
+    container_name: cerberus-redis
     restart: unless-stopped
-    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
     volumes:
       - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    networks:
+      - cerberus-network
 
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: codevault-prometheus
-    restart: unless-stopped
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: codevault-grafana
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_USERS_ALLOW_SIGN_UP=false
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards
-      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources
+networks:
+  cerberus-network:
+    driver: bridge
 
 volumes:
   postgres_data:
   redis_data:
-  prometheus_data:
-  grafana_data:
 ```
 
 ### Environment Configuration
@@ -250,156 +237,113 @@ volumes:
 
 ```bash
 # ============================================
-# CodeVault AI Configuration
+# Cerberus Multi-Agent System Configuration
 # ============================================
 
-# --- Application Settings ---
-APP_ENV=development
-LOG_LEVEL=INFO
-SECRET_KEY=your-secret-key-change-in-production
-
-# --- Server Settings ---
+# --- Core Server Settings ---
+ENVIRONMENT=development
 HOST=0.0.0.0
 PORT=8000
-WORKERS=4
+SECRET_KEY=e4c198518244d0ef6fdbb8c907c3072465c91ccc44bf2092136c4de6c7382a7d
+ALLOWED_HOSTS=*
+CORS_ORIGINS=http://localhost:3000,http://localhost:8000
 
-# --- Database ---
-DATABASE_URL=postgresql://codevault:password@db:5432/codevault
-# For SQLite (development only):
-# DATABASE_URL=sqlite:///./codevault.db
+# --- Database & Cache ---
+DATABASE_URL=sqlite+aiosqlite:///./cerberus.db
+DB_PASSWORD=dev_password
+REDIS_URL=redis://localhost:6379/0
+CACHE_ENABLED=true
+CACHE_TTL_SECONDS=86400
+CACHE_MAX_ITEMS=1000
 
-# --- Redis Cache ---
-REDIS_URL=redis://redis:6379/0
-CACHE_TTL_SECONDS=604800  # 7 days
+# --- LLM Provider Selection ---
+# Options: heuristic (default), watsonx, openai, ollama
+LLM_PROVIDER=heuristic
 
-# --- LLM Provider Configuration ---
-# Options: openai, anthropic, ollama, azure_openai
-LLM_PROVIDER=openai
+# --- IBM watsonx Configuration ---
+WATSONX_API_KEY=
+WATSONX_PROJECT_ID=
+WATSONX_URL=https://us-south.ml.cloud.ibm.com
+WATSONX_MODEL_ID=ibm/granite-3-8b-instruct
 
-# OpenAI
-OPENAI_API_KEY=sk-your-openai-api-key
-OPENAI_MODEL=gpt-4-turbo-preview
-OPENAI_ORG_ID=  # Optional
+# --- OpenAI Configuration ---
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o
 
-# Anthropic Claude
-ANTHROPIC_API_KEY=sk-ant-your-anthropic-key
-ANTHROPIC_MODEL=claude-3-sonnet-20240229
-
-# Ollama (Local)
+# --- Ollama Configuration (Local) ---
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=codellama
 
-# Azure OpenAI
-AZURE_OPENAI_API_KEY=
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_DEPLOYMENT=gpt-4
-AZURE_OPENAI_API_VERSION=2023-12-01-preview
+# --- Active Agents ---
+ENABLED_AGENTS=security,performance,quality,architecture,compliance
 
-# --- Agent Configuration ---
-ENABLED_AGENTS=security,performance,quality
-DEFAULT_AGENTS=security,performance,quality
-
-# --- Security ---
-API_KEY_PREFIX=cvai_
-JWT_SECRET=your-jwt-secret
-CORS_ORIGINS=http://localhost:3000,http://localhost:8000
-
-# --- Rate Limiting ---
+# --- Operational Thresholds ---
+SEVERITY_THRESHOLD=medium
+BLOCKING_MODE=false
+MAX_CONCURRENT_BATCH_REVIEWS=5
+MAX_BATCH_SIZE=100
 RATE_LIMIT_PER_HOUR=100
-RATE_LIMIT_BURST=10
-
-# --- Monitoring ---
-PROMETHEUS_ENABLED=true
-METRICS_PORT=9090
-
-# --- Feature Flags ---
-ENABLE_WEBHOOKS=true
-ENABLE_BATCH_REVIEWS=true
-ENABLE_CACHE=true
 ```
 
 ### Connecting to Different LLM Backends
 
+#### IBM watsonx Setup (Enterprise)
+
+IBM watsonx is the enterprise model backbone featuring IBM Granite models:
+
+```bash
+# Set provider
+export LLM_PROVIDER=watsonx
+
+# Configure IBM Cloud credentials
+export WATSONX_API_KEY="your-ibm-cloud-api-key"
+export WATSONX_PROJECT_ID="your-watsonx-project-id"
+export WATSONX_URL="https://us-south.ml.cloud.ibm.com"
+export WATSONX_MODEL_ID="ibm/granite-3-8b-instruct"
+```
+
+> **Note:** Cerberus automatically exchanges `WATSONX_API_KEY` for temporary IAM OAuth bearer tokens via `https://iam.cloud.ibm.com/identity/token`, caches the bearer token, and handles token expiry refresh seamlessly. See [`WATSONX_INTEGRATION.md`](../WATSONX_INTEGRATION.md) for full IAM permissions and setup guidance.
+
+#### Heuristic Engine (Default, Zero-Config)
+
+```bash
+# Enabled out-of-the-box:
+export LLM_PROVIDER=heuristic
+```
+No external API keys or network connection required. Full static security analysis, AST inspection, and compliance checking run locally.
+
 #### OpenAI Setup
 
 ```bash
-# Get API key from platform.openai.com
+export LLM_PROVIDER=openai
 export OPENAI_API_KEY="sk-..."
-
-# Optional: Specify model
-export OPENAI_MODEL="gpt-4-turbo-preview"  # or gpt-3.5-turbo for lower cost
-
-# Test connection
-docker-compose exec api python -c "
-from openai import OpenAI
-client = OpenAI()
-print(client.models.list())
-"
+export OPENAI_MODEL="gpt-4o"
 ```
 
 #### Ollama Setup (Local)
 
 ```bash
-# Install Ollama (macOS/Linux)
-curl -fsSL https://ollama.ai/install.sh | sh
-
-# Windows: Download from ollama.ai
-
-# Pull a model
+# Pull model
 ollama pull codellama
 
-# Verify it's running
-curl http://localhost:11434/api/tags
-
-# Configure CodeVault to use Ollama
+# Point Cerberus to Ollama instance
 export LLM_PROVIDER=ollama
-export OLLAMA_BASE_URL=http://host.docker.internal:11434  # From Docker
-export OLLAMA_MODEL=codellama
-
-# Restart CodeVault
-docker-compose restart api
+export OLLAMA_BASE_URL="http://localhost:11434"
+export OLLAMA_MODEL="codellama"
 ```
 
-#### Anthropic Claude Setup
+### Volume Mounting for Development
 
-```bash
-# Get API key from console.anthropic.com
-export ANTHROPIC_API_KEY="sk-ant-..."
-export LLM_PROVIDER=anthropic
-export ANTHROPIC_MODEL="claude-3-sonnet-20240229"
-
-docker-compose restart api
-```
-
-#### Azure OpenAI Setup
-
-```bash
-# From Azure Portal, get:
-# - API Key
-# - Endpoint URL
-# - Deployment name
-
-export LLM_PROVIDER=azure_openai
-export AZURE_OPENAI_API_KEY="..."
-export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com/"
-export AZURE_OPENAI_DEPLOYMENT="gpt-4"
-
-docker-compose restart api
-```
-
-### Volume Mounting
-
-For development with hot reload:
+For local development with hot reload:
 
 ```yaml
 # docker-compose.dev.yml
 services:
   api:
     volumes:
-      - ./codevault:/app/codevault  # Mount source code
-      - ./config:/app/config
+      - ./cerberus:/app/cerberus
     environment:
-      - RELOAD=true  # Enable hot reload
+      - ENVIRONMENT=development
 ```
 
 ```bash
@@ -798,56 +742,41 @@ git commit -m "Warn but don't block"
 # Basic health check
 curl http://localhost:8000/api/v1/health
 
-# Detailed health check
-curl "http://localhost:8000/api/v1/health?detailed=true"
+# CLI health check command
+python -m cerberus.cli health
 
-# Check specific components
-docker-compose exec api python -c "
-from codevault.health import check_database, check_redis, check_llm
-print('DB:', check_database())
-print('Redis:', check_redis())
-print('LLM:', check_llm())
-"
+# Readiness check probe
+curl http://localhost:8000/api/v1/ready
 ```
 
 ### Running Test Reviews
 
-**Test with sample code:**
+**Test with sample code via CLI:**
 
 ```bash
-# Create test file
-cat > test_code.py << 'EOF'
-import os
-
-# Hardcoded secret (should be detected)
-API_KEY = "sk-1234567890"
-
-# SQL injection vulnerability (should be detected)
+python -m cerberus.cli review --snippet "import os
+API_KEY = 'sk-1234567890'
 def get_user(user_id):
-    query = f"SELECT * FROM users WHERE id = {user_id}"
-    return db.execute(query)
+    query = f'SELECT * FROM users WHERE id = {user_id}'
+    return db.execute(query)"
+```
 
-# O(n²) complexity (should be detected)
-def find_duplicates(items):
-    duplicates = []
-    for i in range(len(items)):
-        for j in range(i + 1, len(items)):
-            if items[i] == items[j]:
-                duplicates.append(items[i])
-    return duplicates
-EOF
+**Test via HTTP API:**
 
-# Review it
+```bash
 curl -X POST http://localhost:8000/api/v1/review \
-  -H "Authorization: Bearer $CODEVAULT_API_KEY" \
+  -H "Authorization: Bearer cvai_dev_key_123" \
   -H "Content-Type: application/json" \
-  -d "{\"code\": \"$(cat test_code.py | jq -Rs .)\", \"language\": \"python\"}"
+  -d '{
+    "code": "import os\nAPI_KEY = \"sk-1234567890\"\ndef get_user(user_id):\n    return db.execute(f\"SELECT * FROM users WHERE id={user_id}\")",
+    "language": "python"
+  }'
 ```
 
 **Expected to detect:**
-- Critical: Hardcoded API key
-- Critical: SQL injection vulnerability  
-- High: O(n²) algorithmic complexity
+- Critical: Hardcoded API key (CWE-798)
+- Critical: SQL injection vulnerability (CWE-89)
+- Warnings / Suggestions: Quality docstrings, compliance checks
 
 ---
 
@@ -864,103 +793,72 @@ docker-compose ps
 # Check logs
 docker-compose logs api
 
-# Restart services
-docker-compose restart
+# Or run API server directly in current shell
+python -m cerberus.cli serve --host 0.0.0.0 --port 8000
 ```
 
 **Issue: "Invalid API key"**
 
 ```bash
-# Verify key format
-echo $CODEVAULT_API_KEY  # Should start with cvai_
-
-# Create new key
-docker-compose exec api python -m codevault.cli create-api-key --name "new-key"
+# In local development mode, use pre-seeded key: cvai_dev_key_123
+# Or create a new key via CLI:
+python -m cerberus.cli create-api-key --name "new-key"
 ```
 
 **Issue: "LLM provider unavailable"**
 
 ```bash
-# Test OpenAI connection
-curl https://api.openai.com/v1/models \
-  -H "Authorization: Bearer $OPENAI_API_KEY"
-
-# Test Ollama connection
-curl http://localhost:11434/api/tags
-
-# Check provider configuration
-docker-compose exec api python -c "
+# If using IBM watsonx, verify IAM credentials & project ID:
+python -c "
 import os
-print('Provider:', os.getenv('LLM_PROVIDER'))
-print('OpenAI Key:', os.getenv('OPENAI_API_KEY')[:10] + '...' if os.getenv('OPENAI_API_KEY') else 'Not set')
+from cerberus.config import settings
+print('Provider:', settings.LLM_PROVIDER)
+print('WatsonX Model:', settings.WATSONX_MODEL_ID)
+print('WatsonX Key Configured:', bool(settings.WATSONX_API_KEY))
 "
+
+# Fallback to zero-config heuristic engine:
+export LLM_PROVIDER=heuristic
 ```
 
 **Issue: "Database connection failed"**
 
 ```bash
-# Check database is running
+# Check container status
 docker-compose ps db
 
-# Test connection
-docker-compose exec db psql -U codevault -c "SELECT 1"
+# Test PostgreSQL connectivity
+docker-compose exec db psql -U codevault -d codevault_db -c "SELECT 1"
 
-# Reset database
-docker-compose down -v  # WARNING: Deletes data
-docker-compose up -d
+# Or switch to zero-config local SQLite:
+# Set DATABASE_URL=sqlite+aiosqlite:///./cerberus.db in .env
 ```
 
 **Issue: Slow reviews**
 
 ```bash
-# Check cache hit rate
-curl http://localhost:8000/api/v1/health?detailed=true | jq '.components.cache'
+# Check cache status
+curl http://localhost:8000/api/v1/health | jq '.cache'
 
-# Clear cache if needed
+# Clear Redis cache if applicable
 docker-compose exec redis redis-cli FLUSHALL
-
-# Check LLM response times
-docker-compose logs api | grep "llm_latency"
 ```
 
 ---
 
-## Upgrade & Migration
+## Upgrade & Maintenance
 
-### Upgrading CodeVault
-
-```bash
-# Pull latest version
-docker-compose pull
-
-# Backup database
-docker-compose exec db pg_dump -U codevault codevault > backup.sql
-
-# Stop services
-docker-compose down
-
-# Start with new version
-docker-compose up -d
-
-# Run migrations
-docker-compose exec api python -m codevault.cli migrate
-```
-
-### Migrating from SQLite to PostgreSQL
+### Upgrading Cerberus
 
 ```bash
-# Export from SQLite
-docker-compose exec api python -m codevault.cli export --format sql > export.sql
+# Pull latest code
+git pull origin main
 
-# Update DATABASE_URL in .env
-# DATABASE_URL=postgresql://codevault:password@db:5432/codevault
+# Install/update pinned dependencies
+pip install -r requirements.txt
 
-# Restart with PostgreSQL
-docker-compose up -d db
-sleep 10
-
-# Import data
-docker-compose exec api python -m codevault.cli import < export.sql
+# Verify test suite
+python -m pytest tests/ -q --tb=short
 ```
 
 ---

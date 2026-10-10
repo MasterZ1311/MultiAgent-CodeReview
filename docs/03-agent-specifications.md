@@ -8,9 +8,14 @@
 ## Table of Contents
 
 - [Agent Architecture Overview](#agent-architecture-overview)
+  - [Agent Lifecycle](#agent-lifecycle)
+  - [Base Agent Interface](#base-agent-interface)
+  - [Unified Finding Schema](#unified-finding-schema)
 - [Security Agent](#security-agent)
 - [Performance Agent](#performance-agent)
 - [Code Quality Agent](#code-quality-agent)
+- [Architecture Agent](#architecture-agent)
+- [Compliance Agent](#compliance-agent)
 - [Agent Customization](#agent-customization)
 - [Creating Custom Agents](#creating-custom-agents)
 - [Agent Orchestration](#agent-orchestration)
@@ -19,57 +24,85 @@
 
 ## Agent Architecture Overview
 
-CodeVault AI uses a multi-agent architecture where each agent is a specialized module focused on a specific aspect of code review.
+Cerberus uses a multi-agent orchestration architecture where each agent is an autonomous, specialized module focused on a specific quality, security, architectural, or regulatory dimension.
 
 ### Agent Lifecycle
 
 ```
 ┌─────────────┐
-│ Initialize  │ ← Load config, connect to LLM
+│ Initialize  │ ← Load config & providers (Watsonx, OpenAI, Heuristic)
 └──────┬──────┘
        │
 ┌──────▼──────┐
-│  Prepare    │ ← Parse code, extract context
+│  Prepare    │ ← Extract AST, imports, functions, context
 └──────┬──────┘
        │
 ┌──────▼──────┐
-│  Analyze    │ ← Send to LLM, get findings
+│  Analyze    │ ← Run static heuristics or query LLM provider
 └──────┬──────┘
        │
 ┌──────▼──────┐
-│  Process    │ ← Parse LLM response, structure findings
+│  Normalize  │ ← Structure findings into unified Finding schema
 └──────┬──────┘
        │
 ┌──────▼──────┐
-│  Return     │ ← Return structured results
+│  Aggregate  │ ← Calculate agent score and return AgentResult
 └─────────────┘
 ```
 
 ### Base Agent Interface
 
-All agents implement the following interface:
+All agents in Cerberus inherit from `BaseAgent` (`cerberus/agents/base.py`):
 
 ```python
 class BaseAgent(ABC):
-    """Base class for all code review agents."""
-    
-    def __init__(self, config: AgentConfig, llm_provider: LLMProvider):
-        self.config = config
-        self.llm = llm_provider
-    
+    """Abstract Base Class for all specialized review agents."""
+
+    name: str = "base_agent"
+    version: str = "1.0.0"
+    purpose: str = "Base code review agent"
+
     @abstractmethod
-    async def analyze(self, code: str, context: CodeContext) -> AgentResult:
-        """Analyze code and return findings."""
+    async def analyze(
+        self,
+        code: str,
+        language: str = "python",
+        context: Optional[Dict[str, Any]] = None
+    ) -> AgentResult:
+        """Analyze code snippet and return structured findings and score."""
         pass
-    
+
     @abstractmethod
     def get_capabilities(self) -> List[str]:
-        """Return list of agent capabilities."""
+        """Return list of specific checks and capabilities provided by this agent."""
         pass
-    
+
     async def health_check(self) -> bool:
-        """Check if agent is healthy and LLM is accessible."""
-        pass
+        """Verify that agent is operational and ready to receive review tasks."""
+        return True
+```
+
+### Unified Finding Schema
+
+All agents return issues modeled by the Pydantic `Finding` schema (`cerberus/models/schemas.py`):
+
+```python
+class Finding(BaseModel):
+    id: Optional[str] = Field(default=None, description="Unique finding ID, e.g. SEC-001")
+    severity: SeverityEnum = Field(description="Severity classification: critical, high, medium, low, info")
+    category: str = Field(description="Finding category, e.g. injection, complexity, architecture, compliance")
+    title: str = Field(description="Short human-readable summary of the issue")
+    message: str = Field(description="Detailed explanation of what was found")
+    line: Optional[int] = Field(default=None, description="Line number in source code")
+    column: Optional[int] = Field(default=None, description="Column offset in source code")
+    code_snippet: Optional[str] = Field(default=None, description="Offending code line or block")
+    explanation: Optional[str] = Field(default=None, description="Why this finding matters")
+    recommendation: Optional[str] = Field(default=None, description="Actionable guidance to resolve the issue")
+    suggestion: Optional[str] = Field(default=None, description="Concrete replacement snippet or diff")
+    cwe_id: Optional[str] = Field(default=None, description="Common Weakness Enumeration ID (e.g. CWE-89)")
+    cvss_score: Optional[float] = Field(default=None, description="CVSS 3.1 score between 0.0 and 10.0")
+    exploitability: Optional[float] = Field(default=None, description="Estimated exploitability probability")
+    false_positive_probability: Optional[float] = Field(default=0.02, description="Calculated FP probability")
 ```
 
 ---
@@ -780,6 +813,190 @@ agents:
       "line": 5,
       "explanation": "Function lacks documentation explaining its purpose",
       "suggested_fix": "def calculate_value():\n    \"\"\"\n    Calculate the total value including tax.\n    \n    Returns:\n        float: Total value\n    \"\"\""
+    }
+  ]
+}
+```
+
+---
+
+## Architecture Agent
+
+**ID:** `architecture`  
+**Version:** `1.0.0`  
+**Purpose:** Validate system architecture, module coupling, and structural anti-patterns
+
+### Capabilities
+
+The Architecture Agent analyzes module organization, dependency direction, and coupling anti-patterns:
+
+#### 1. Deep Coupling & Relative Import Detection
+
+Excessive relative import depth indicates tight architectural coupling between disparate package layers:
+
+```python
+# ❌ Anti-pattern: Deep relative import crossing architectural boundaries
+from ....services.billing.internal.ledger import LedgerProcessor
+
+# ✅ Clean: Absolute import or decoupled interface injection
+from cerberus.services.billing import LedgerProcessor
+```
+
+#### 2. Cyclic Dependency Risk Analysis
+
+Detects mutual dependencies where module A imports B and B imports A, leading to initialization deadlocks:
+
+```python
+# ❌ Anti-pattern: Direct mutual module import
+# In auth.py:
+from cerberus.core.users import get_user_profile
+
+# In users.py:
+from cerberus.core.auth import verify_session_token
+
+# ✅ Decoupled: Domain events, dependency injection, or shared protocol
+```
+
+#### 3. Single Responsibility Principle (SRP) Verification
+
+Identifies bloated classes and monolithic modules that combine database access, business logic, network communication, and presentation:
+
+```python
+# ❌ Anti-pattern: God class handling storage, business logic, and notifications
+class UserManager:
+    def connect_database(self): ...
+    def hash_password(self): ...
+    def send_smtp_email(self): ...
+    def generate_html_invoice(self): ...
+
+# ✅ Decomposed: Modular single-purpose services
+class UserRepository: ...
+class PasswordHasher: ...
+class NotificationService: ...
+```
+
+#### 4. Architectural Modularity Scoring
+
+Computes a structural modularity index (0.0 to 100.0) based on cohesion, import graph depth, and component boundaries.
+
+### Architecture Agent Finding Format
+
+```json
+{
+  "name": "architecture",
+  "status": "completed",
+  "score": 70.0,
+  "execution_time_ms": 12,
+  "findings": [
+    {
+      "id": "ARCH-001",
+      "severity": "medium",
+      "category": "architecture",
+      "title": "Deep Relative Import Violates Layer Separation",
+      "message": "Module uses 4 levels of relative import traversal, creating brittle coupling.",
+      "line": 4,
+      "code_snippet": "from ....services.internal import core_db",
+      "explanation": "Deep relative imports bypass architectural layers and complicate module refactoring.",
+      "recommendation": "Use absolute package imports or dependency injection.",
+      "suggestion": "from myapp.services.internal import core_db",
+      "cwe_id": "CWE-1061",
+      "cvss_score": 3.2,
+      "exploitability": 0.05,
+      "false_positive_probability": 0.02
+    }
+  ]
+}
+```
+
+---
+
+## Compliance Agent
+
+**ID:** `compliance`  
+**Version:** `2.0.0`  
+**Purpose:** Audit code against HIPAA, GDPR, SOC 2, PCI-DSS, and CCPA regulatory mandates
+
+### Supported Regulatory Frameworks
+
+The Compliance Agent (`ComprehensiveComplianceAgent`) continuously evaluates code against 5 regulatory standards:
+
+#### 1. HIPAA Security Rule (45 CFR §164.312)
+- **ePHI In-Transit Encryption:** Enforces TLS 1.2+ for electronic Protected Health Information; flags plaintext HTTP transmission.
+- **Audit Controls & Logging:** Requires audit logging for medical record access; forbids plaintext ePHI (SSN, medical records) in application logs.
+
+```python
+# ❌ Non-compliant: Transmitting ePHI over plaintext HTTP
+response = requests.post("http://health-api.local/patients/records", json=patient_ephi)
+
+# ✅ Compliant: Mandatory TLS and audit trail
+response = requests.post("https://health-api.secure.internal/patients/records", json=patient_ephi)
+```
+
+#### 2. GDPR Data Protection (Articles 5, 6, 17, 25, 32)
+- **Data Minimization (Art. 5):** Flags unnecessary personal data collection or long-term caching without retention bounds.
+- **Right to Erasure (Art. 17):** Verifies that user data processing pipelines support cascade deletion / forgetting mechanisms.
+- **Lawful Processing & Consent (Art. 6):** Validates explicit consent checks before personal telemetry tracking.
+
+#### 3. SOC 2 Trust Services Criteria (CC6.1, CC6.6, CC7.1, CC7.2)
+- **Hardcoded Secrets & Plaintext Credentials:** Flags passwords, API keys, and connection strings embedded directly in source code.
+- **Role-Based Access Control (RBAC):** Verifies authentication and authorization checks on sensitive administrative handlers.
+- **Log Masking:** Flags unmasked authentication tokens or PII written to standard output or logging pipelines.
+
+#### 4. PCI-DSS v4.0 (Req 3.2, 3.4, 3.5)
+- **Prohibited Sensitive Authentication Data (Req 3.2):** Forbids permanent storage of Card Verification Values (CVV / CVC) post-authorization.
+- **Primary Account Number (PAN) Protection (Req 3.4):** Employs Luhn checksum validation to identify real 13–19 digit credit card numbers in code, ensuring they are hashed or masked.
+
+```python
+# ❌ Non-compliant: Storing CVV and plaintext card PAN
+db.execute(f"INSERT INTO transactions (pan, cvv) VALUES ('{card_num}', '{cvv}')")
+
+# ✅ Compliant: Tokenized payment processor reference
+db.execute("INSERT INTO transactions (token) VALUES (%s)", (payment_token,))
+```
+
+#### 5. CCPA / CPRA (§1798.105, §1798.120)
+- **Do Not Sell My Personal Information:** Audits data broker endpoints and analytics handlers for opt-out honoring.
+- **Consumer Request Verification:** Ensures Data Subject Access Request (DSAR) validation before data exports.
+
+### Compliance Agent Finding Format
+
+```json
+{
+  "name": "compliance",
+  "status": "completed",
+  "score": 45.0,
+  "execution_time_ms": 28,
+  "findings": [
+    {
+      "id": "COMP-PCI-001",
+      "severity": "critical",
+      "category": "compliance",
+      "title": "PCI-DSS Prohibited CVV Storage Detected",
+      "message": "Storage of card security code (CVV/CVC) post-authorization violates PCI-DSS Requirement 3.2.",
+      "line": 42,
+      "code_snippet": "card_cvv = request.json['cvv']; db.save(cvv=card_cvv)",
+      "explanation": "Card verification codes must never be stored after transaction authorization under any circumstances.",
+      "recommendation": "Purge CVV from storage and memory immediately following bank authorization.",
+      "suggestion": "# Do not persist CVV\npass",
+      "cwe_id": "CWE-312",
+      "cvss_score": 9.1,
+      "exploitability": 0.9,
+      "false_positive_probability": 0.01
+    },
+    {
+      "id": "COMP-HIPAA-002",
+      "severity": "high",
+      "category": "compliance",
+      "title": "HIPAA ePHI Transmission Without TLS",
+      "message": "Protected health information transmitted over unencrypted HTTP endpoint (45 CFR §164.312(e)(1)).",
+      "line": 88,
+      "code_snippet": "requests.post('http://internal-records/phi', json=phi_payload)",
+      "recommendation": "Enforce HTTPS with TLS 1.2 or TLS 1.3 encryption for all health data transit.",
+      "suggestion": "requests.post('https://internal-records/phi', json=phi_payload)",
+      "cwe_id": "CWE-319",
+      "cvss_score": 7.5,
+      "exploitability": 0.7,
+      "false_positive_probability": 0.01
     }
   ]
 }
