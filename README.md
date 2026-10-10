@@ -3,10 +3,12 @@
 **cerberus</> Autonomous Multi-Agent Code Review & Quality Assurance System**
 *(CodeVault AI Architecture Concept)*
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python: 3.11+](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/downloads/)
+[![CI Status](https://github.com/MasterZ1311/MultiAgent-CodeReview/actions/workflows/ci.yml/badge.svg)](https://github.com/MasterZ1311/MultiAgent-CodeReview/actions/workflows/ci.yml)
 [![Tests Passing](https://img.shields.io/badge/tests-338%20passed-brightgreen.svg)](tests/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](docs/08-developer-guide.md)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Security Policy](https://img.shields.io/badge/security-policy-red.svg)](SECURITY.md)
 
 **cerberus</>** is an enterprise-grade multi-agent code review platform that inspects source code across five independent, specialized dimensions: **Security**, **Performance**, **Quality**, **Architecture**, and **Regulatory Compliance**. It supports flexible LLM backends including **IBM watsonx (IBM Granite)**, **OpenAI**, **Ollama**, and includes a zero-config deterministic **Heuristic Engine** that runs 100% offline without credentials.
 
@@ -190,6 +192,15 @@ python -m pytest tests/ -q --tb=short
 
 ---
 
+## 🤝 Contributing & Community
+
+We welcome contributions of all kinds! Please see our:
+- 📖 [Contributing Guide](CONTRIBUTING.md) for local environment setup, testing, and PR conventions.
+- 🛡️ [Security Policy](SECURITY.md) for vulnerability disclosure guidelines.
+- 📜 [Code of Conduct](CODE_OF_CONDUCT.md) for community expectations.
+
+---
+
 ## 📜 License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+Distributed under the MIT License. See [LICENSE](LICENSE) for full terms.
