@@ -151,8 +151,10 @@ async def test_watsonx_provider_session_reuse_across_calls(monkeypatch):
 
     call_count = 0
 
-    async def mock_post(url, json=None, headers=None, timeout=None):
+    async def mock_post(url, *args, **kwargs):
         nonlocal call_count
+        if "iam.cloud.ibm.com" in str(url):
+            return httpx.Response(200, json={"access_token": "mock-iam-token", "expires_in": 3600}, request=httpx.Request("POST", url))
         call_count += 1
         payload = {
             "results": [{"generated_text": f"watsonx granite result {call_count}"}]

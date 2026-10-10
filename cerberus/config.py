@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     WATSONX_API_KEY: Optional[str] = None
     WATSONX_PROJECT_ID: Optional[str] = None
     WATSONX_URL: str = "https://us-south.ml.cloud.ibm.com"
+    WATSONX_MODEL_ID: str = "ibm/granite-3-8b-instruct"
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o"
     OLLAMA_BASE_URL: str = "http://localhost:11434"

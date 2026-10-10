@@ -1,9 +1,10 @@
 """
 IBM watsonx Foundation Model Provider.
-Integrates with IBM watsonx Orchestrate / watsonx.ai foundation models.
+Integrates with IBM watsonx Orchestrate / watsonx.ai foundation models via IBM Cloud IAM OAuth.
 """
 
 import logging
+import time
 from typing import Optional
 import httpx
 from cerberus.config import settings
@@ -18,36 +19,84 @@ class WatsonxProvider(BaseLLMProvider):
         self.api_key = settings.WATSONX_API_KEY
         self.project_id = settings.WATSONX_PROJECT_ID
         self.endpoint = settings.WATSONX_URL
+        self.model_id = settings.WATSONX_MODEL_ID
+        self._iam_token: Optional[str] = None
+        self._token_expires_at: float = 0.0
 
     async def is_available(self) -> bool:
         return bool(self.api_key and self.project_id)
+
+    async def _get_iam_token(self) -> Optional[str]:
+        """
+        Exchanges IBM Cloud API key for IAM OAuth bearer token and caches it.
+        Refreshes when within 60 seconds of expiry.
+        """
+        if not self.api_key:
+            return None
+
+        # Return cached token if valid for at least another 60 seconds
+        if self._iam_token and time.time() < (self._token_expires_at - 60):
+            return self._iam_token
+
+        try:
+            client = await self.get_client()
+            url = "https://iam.cloud.ibm.com/identity/token"
+            headers = {"Content-Type": "application/x-www-form-urlencoded"}
+            data = {
+                "grant_type": "urn:ibm:params:oauth:grant-type:apikey",
+                "apikey": self.api_key,
+            }
+            res = await client.post(url, data=data, headers=headers, timeout=15.0)
+            if res.status_code == 200:
+                payload = res.json()
+                token = payload.get("access_token")
+                expires_in = payload.get("expires_in", 3600)
+                if token:
+                    self._iam_token = token
+                    self._token_expires_at = time.time() + float(expires_in)
+                    return self._iam_token
+            logger.warning(f"Failed to obtain IBM IAM token: HTTP {res.status_code} - {res.text}")
+        except Exception as e:
+            logger.warning(f"Error fetching IBM IAM token: {e}")
+        return None
 
     async def generate_response(self, system_prompt: str, user_prompt: str) -> Optional[str]:
         if not await self.is_available():
             logger.debug("IBM watsonx credentials not configured; deferring to heuristic evaluator.")
             return None
 
+        token = await self._get_iam_token()
+        if not token:
+            logger.warning("IBM watsonx IAM token exchange failed; falling back to heuristic evaluator.")
+            return None
+
         try:
-            # Example watsonx text generation request
             headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
             }
             payload = {
-                "model_id": "ibm/granite-13b-chat-v2",
+                "model_id": self.model_id,
                 "project_id": self.project_id,
-                "input": f"System: {system_prompt}\n\nUser: {user_prompt}",
+                "input": f"{system_prompt}\n\n{user_prompt}",
                 "parameters": {
                     "decoding_method": "greedy",
                     "max_new_tokens": 1024,
-                    "temperature": 0.1
-                }
+                    "temperature": 0.1,
+                    "repetition_penalty": 1.05,
+                },
             }
             client = await self.get_client()
-            res = await client.post(f"{self.endpoint}/v1/generate", json=payload, headers=headers, timeout=15.0)
+            endpoint_base = self.endpoint.rstrip("/")
+            url = f"{endpoint_base}/ml/v1/text/generation?version=2023-05-29"
+            res = await client.post(url, json=payload, headers=headers, timeout=20.0)
             if res.status_code == 200:
                 data = res.json()
-                return data.get("results", [{}])[0].get("generated_text")
+                results = data.get("results")
+                if results and len(results) > 0:
+                    return results[0].get("generated_text")
+            else:
+                logger.warning(f"watsonx API request returned HTTP {res.status_code}: {res.text}")
         except Exception as e:
             logger.warning(f"watsonx API request failed: {e}")
         return None
