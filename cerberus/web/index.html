@@ -461,6 +461,8 @@
         <div class="presets">
           <button class="btn-preset" onclick="loadPreset('vulnerable')">⚠️ SQL &amp; Secrets</button>
           <button class="btn-preset" onclick="loadPreset('performance')">⚡ O(n²) &amp; Loops</button>
+          <button class="btn-preset" onclick="loadPreset('compliance')">📋 HIPAA &amp; GDPR</button>
+          <button class="btn-preset" onclick="loadPreset('architecture')">🏛️ Arch &amp; Style</button>
           <button class="btn-preset" onclick="loadPreset('clean')">✨ Clean Code</button>
         </div>
       </div>
@@ -489,7 +491,10 @@
         <div class="panel-title">
           <span>Review Synthesizer</span>
         </div>
-        <span id="latency-tag" style="font-size: 0.8rem; color: var(--text-muted);">Awaiting submission</span>
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <span id="latency-tag" style="font-size: 0.8rem; color: var(--text-muted);">Awaiting submission</span>
+          <button id="btn-copy-json" class="btn-preset" onclick="copyReportJson()" title="Copy full review report as JSON">📋 Copy JSON</button>
+        </div>
       </div>
 
       <div class="overview-grid">
@@ -516,10 +521,14 @@
   </main>
 
   <script>
+    let lastReviewData = null;
+
     const PRESETS = {
       vulnerable: `import os\n\nAPI_KEY = "sk-live-98213847291038291029381"\n\ndef get_user_profile(user_id):\n    # Critical: SQL Injection flaw\n    query = "SELECT * FROM users WHERE id = " + user_id\n    db.execute(query)\n\ndef ping_host(host):\n    # Command injection\n    os.system("ping -c 1 " + host)\n`,
-      performance: `def process_records(items):\n    # O(n^2) Quadratic nested loop\n    duplicates = []\n    for i in items:\n        for j in items:\n            if i == j:\n                duplicates.append(i)\n\n    # Inefficient string concatenation in loop\n    summary = ""\n    for item in duplicates:\n        summary += str(item)\n\n    return summary\n`,
-      clean: `from typing import List, Optional\nimport os\n\ndef calculate_total(prices: List[float], tax_rate: float = 0.05) -> float:\n    """Calculate total price including sales tax."""\n    subtotal = sum(prices)\n    return round(subtotal * (1 + tax_rate), 2)\n`
+      performance: `def process_records(items):\n    # O(n^2) Quadratic nested loop\n    duplicates = []\n    for i in items:\n        for j in items:\n            if i == j:\n                duplicates.append(i)\n\n    # Inefficient string concatenation in loop\n    summary = ""\n    for item in duplicates:\n        summary += str(item)\n\n    # Database N+1 query inside loop\n    for dup in duplicates:\n        db.query("SELECT * FROM audit WHERE item_id = " + str(dup))\n\n    return summary\n`,
+      compliance: `import logging\n\n# HIPAA & GDPR Compliance Violations Demo\nlogger = logging.getLogger("auth_audit")\n\ndef export_patient_records(ssn: str, patient_name: str, medical_diagnosis: str):\n    # HIPAA Violation: PHI emitted to logs\n    logger.info(f"Exporting record: {patient_name}, SSN: {ssn}, Diagnosis: {medical_diagnosis}")\n\n    # HIPAA In-Transit Encryption Violation (Cleartext HTTP) + GDPR PII in URL\n    url = f"http://api.healthcare-analytics.org/records?ssn={ssn}"\n    return url\n`,
+      architecture: `from ..core.internal.utils import sanitize_input\n\n# Architectural coupling and quality violations\ndef process_batch(items):\n    try:\n        for item in items:\n            pass\n    except:\n        # Dangerous bare except suppressing runtime errors\n        pass\n`,
+      clean: `from typing import List, Optional\nimport os\n\ndef calculate_total(prices: List[float], tax_rate: float = 0.05) -> float:\n    """Calculate total price including sales tax in a fully compliant manner.\n\n    Args:\n        prices: List of positive float prices.\n        tax_rate: Sales tax multiplier.\n\n    Returns:\n        Calculated total rounded to 2 decimal places.\n    """\n    subtotal = sum(prices)\n    return round(subtotal * (1 + tax_rate), 2)\n`
     };
 
     function loadPreset(name) {
@@ -563,6 +572,7 @@
         });
 
         const data = await res.json();
+        lastReviewData = data;
         renderResults(data);
       } catch (err) {
         console.error(err);
@@ -572,6 +582,19 @@
         spinner.style.display = 'none';
         btnText.innerText = 'Execute Multi-Agent Review';
       }
+    }
+
+    function copyReportJson() {
+      if (!lastReviewData) {
+        alert('Run a review first to copy its JSON results.');
+        return;
+      }
+      navigator.clipboard.writeText(JSON.stringify(lastReviewData, null, 2)).then(() => {
+        const copyBtn = document.getElementById('btn-copy-json');
+        const orig = copyBtn.innerText;
+        copyBtn.innerText = '✔ Copied!';
+        setTimeout(() => { copyBtn.innerText = orig; }, 2000);
+      });
     }
 
     function renderResults(data) {
@@ -623,6 +646,13 @@
         container.appendChild(card);
       });
     }
+
+    // Keyboard shortcut: Ctrl+Enter or Cmd+Enter to execute review
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        executeReview();
+      }
+    });
 
     // Load initial preset
     window.onload = () => loadPreset('vulnerable');
